@@ -1,0 +1,19 @@
+services:
+  app:
+    build: .
+    user: "1000:1000"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - ./data:/app/data
+      - ./cache:/app/cache
+      - ${CAPTU_NAS_HOST}:/mnt/nas/video:ro
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Tokyo
+      - RUST_LOG=captu=debug,info
+      # Path overrides — change here without editing config.toml or rebuilding.
+      # These are the prod defaults (matching config.toml); override in .env or here.
+      - CAPTU_DB_PATH=/app/data/captions.db
+      - CAPTU_CACHE_DIR=/app/cache

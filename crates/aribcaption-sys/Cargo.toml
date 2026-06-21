@@ -1,0 +1,12 @@
+[package]
+name = "aribcaption-sys"
+version = "0.1.0"
+edition = "2021"
+description = "FFI bindings and safe wrappers for libaribcaption (ARIB STD-B24 caption decoder/renderer)"
+links = "aribcaption"
+
+[dependencies]
+
+[build-dependencies]
+cmake = "0.1"
+bindgen = "0.70"

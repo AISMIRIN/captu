@@ -1,0 +1,25 @@
+{% if let Some(eps) = episodes %}
+{% if !eps.is_empty() %}
+{# Episode selector for titles with episode numbers #}
+<select name="ep"
+        class="px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white text-sm focus:outline-none focus:border-blue-500">
+  <option value="">話数を選択</option>
+  {% for e in eps %}
+  <option value="{% if let Some(n) = e.episode_number %}{{ n }}{% endif %}">
+    {% if let Some(n) = e.episode_number %}{{ n }}話{% else %}(話数不明){% endif %}{% if let Some(t) = e.episode_title %} {{ t }}{% endif %}{% if let Some(d) = e.air_date %} ({{ d }}){% endif %}
+  </option>
+  {% endfor %}
+</select>
+{% endif %}
+{% else %}
+{% if let Some(subs) = subtitles %}
+{# Subtitle selector for titles without episode numbers #}
+<select name="sub"
+        class="px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white text-sm focus:outline-none focus:border-blue-500">
+  <option value="">サブタイトルを選択</option>
+  {% for s in subs %}
+  <option value="{{ s }}">{{ s }}</option>
+  {% endfor %}
+</select>
+{% endif %}
+{% endif %}

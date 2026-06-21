@@ -1,0 +1,59 @@
+# captu 開発ガイド
+
+地デジ録画TSファイルから字幕テキストを抽出・索引化し、文言検索 → コンタクトシートでフレーム選定 → JPEG共有/コピーを行うWebアプリ。
+設計の詳細は `docs/spec.md` を参照。
+
+---
+
+## モジュール構成
+
+```
+src/
+├── main.rs          # axumサーバ、起動時スキャン
+├── config.rs        # config.toml 読み込み
+├── db.rs            # SQLiteスキーマ・接続プール
+├── ingest.rs        # TSスキャン・取り込みオーケストレーション
+├── ts/
+│   ├── b24.rs       # ARIB STD-B24テキストコーデック (decode_arib_b24)
+│   ├── epg.rs       # EIT/EPGパーサ → EpgInfo
+│   ├── pes.rs       # ARIB字幕PESデマクサ (find_caption_pid, demux_caption_pes)
+│   └── subtitle.rs  # libaribcaption FFI字幕抽出・on-demand PNG描画
+│                    #   Caption { pts_start_ms, pts_end_ms, text }
+├── media/
+│   └── capture.rs   # ffmpeg 2段パイプライン・サムネ生成
+│                    #   Stage1: TSセグメント → MJPEGパイプ
+│                    #   Stage2: MJPEG → フレーム選択 + 字幕PNGオーバーレイ → JPEG
+├── routes/
+│   ├── search.rs    # GET /, GET /search
+│   ├── contact.rs   # GET /contact/:id (コンタクトシート)
+│   ├── capture.rs   # GET /thumb/:id/:n
+│   └── ingest.rs    # GET /ingest/status (取り込み状況)
+└── bin/
+    ├── extract.rs    # 診断CLI: TSから字幕/EPGをダンプ
+    └── ingest_cli.rs # 本番CLI: スキャン・再取り込み
+```
+
+## キャッシュ構成
+
+```
+cache/{ts_stem}/
+  captions.pes           # ARIB字幕PESブロブ (取り込み時に保存)
+  sub/{caption_id}.png   # 字幕PNG (on-demand描画、初回アクセス時に生成)
+  thumbs/
+    {caption_id}_{n:02}.jpg  # コンタクトシートJPEG (コンタクトシート表示時に生成)
+```
+
+## 技術規約
+
+- ffmpegのシークは必ず `-ss` を `-i` の前に置く (NAS越しのため)
+- sqlxは `query!` マクロを使う (コンパイル時クエリ検証)。`.sqlx/` をgit管理に含める
+- テンプレートはaskama (コンパイル時検証)
+- TSの取り込みは `tokio::spawn` でバックグラウンド実行しAPIをブロックしない
+- PESブロブ・字幕PNG・JPEGはキャッシュ済みなら再生成しない
+- **ビルド・テスト・抽出は `scripts/dev.sh` 経由** (root所有ファイル回避)
+
+## 進め方の原則
+
+- 実装したら必ず検証コマンドを実行し、結果を報告してから次へ進む
+- 検証が失敗したら原因を報告し修正案を提示する。勝手に大きく設計変更しない
+- 残フェーズは `plans/` を参照 (phase5-scheduler / phase7-ai-search / phase8-multimodal)

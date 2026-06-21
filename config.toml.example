@@ -1,0 +1,29 @@
+[paths]
+nas_mount = "/mnt/nas/video"  # path to the recordings directory (mounted inside container)
+ts_glob = "**/*.ts"
+cache_dir = "/app/cache"
+db_path = "/app/data/captions.db"
+
+# Path overrides via environment variables (useful for dev/prod separation):
+#   CAPTU_NAS_MOUNT, CAPTU_TS_GLOB, CAPTU_DB_PATH, CAPTU_CACHE_DIR
+
+[capture]
+thumb_count = 6        # contact-sheet frames per caption
+width = 1920           # output width in pixels (terrestrial 1440x1080 → 1920x1080)
+height = 1080          # output height in pixels
+jpeg_quality = 2       # ffmpeg -q:v value (2 = near-lossless; lower = better quality)
+
+[ingest]
+schedule_cron = "0 * * * * *"  # TODO(Phase5): not yet wired up
+run_on_startup = true
+# Number of parallel ingest workers (recommended 2-4; tune to NAS bandwidth)
+concurrency = 3
+# Skip TS files with no ARIB caption PID
+require_captions = false
+# Glob patterns to exclude from scanning (examples shown)
+# filter_exclude = ["**/*CM*.ts", "**/sp_*.ts"]
+# filter_include = []  # empty = accept all
+
+[server]
+host = "0.0.0.0"
+port = 8000

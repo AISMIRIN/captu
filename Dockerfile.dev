@@ -1,0 +1,21 @@
+FROM rust:1-slim-bookworm
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates pkg-config \
+    libssl-dev \
+    libx264-164 libx265-199 libvpx7 libass9 libfreetype6 \
+    fontconfig \
+    sqlite3 \
+    cmake clang libclang-dev g++ \
+    libfreetype6-dev libfontconfig1-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=captu-ffmpeg:latest /usr/local/bin/ffmpeg  /usr/local/bin/ffmpeg
+COPY --from=captu-ffmpeg:latest /usr/local/bin/ffprobe /usr/local/bin/ffprobe
+
+# Rounded M+ 1m for ARIB subtitle burn-in (same font as runtime image)
+COPY assets/fonts/rounded-mplus-1m-arib.ttf /usr/local/share/fonts/
+COPY assets/fonts/99-captu-fonts.conf /etc/fonts/conf.d/
+RUN fc-cache -f
+
+WORKDIR /app

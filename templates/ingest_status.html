@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="max-w-3xl mx-auto px-4 py-10">
+
+  <div class="flex items-center justify-between mb-8">
+    <h1 class="text-xl font-bold text-white">ingest 状況</h1>
+    <a href="/" class="text-sm text-gray-400 hover:text-gray-200 transition-colors">← 検索へ戻る</a>
+  </div>
+
+  {# Auto-refresh: htmx swaps this div every 4 s using the full page response,
+     extracting only #status-body via hx-select to avoid replacing the layout. #}
+  <div
+    id="status-body"
+    hx-get="/ingest/status"
+    hx-trigger="every 4s"
+    hx-select="#status-body"
+    hx-target="#status-body"
+    hx-swap="outerHTML"
+  >
+
+    {# Progress bar #}
+    <div class="mb-6">
+      <div class="flex justify-between text-sm text-gray-400 mb-2">
+        <span>完了 {{ done }} / {{ total }}</span>
+        <span>
+          {% if ingesting > 0 %}
+            処理中...
+          {% else if pending > 0 %}
+            待機中
+          {% else if total == 0 %}
+            ファイルなし
+          {% else %}
+            すべて完了
+          {% endif %}
+        </span>
+      </div>
+      {% if total > 0 %}
+      <div class="w-full bg-gray-700 rounded-full h-2">
+        <div
+          class="bg-blue-500 h-2 rounded-full transition-all"
+          style="width: {{ done * 100 / total }}%"
+        ></div>
+      </div>
+      {% endif %}
+    </div>
+
+    {# Status counters #}
+    <div class="grid grid-cols-4 gap-3 mb-6">
+      <div class="bg-gray-800 rounded-lg p-3 text-center">
+        <div class="text-2xl font-bold text-gray-300">{{ pending }}</div>
+        <div class="text-xs text-gray-500 mt-1">待機</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-3 text-center">
+        <div class="text-2xl font-bold text-blue-400">{{ ingesting }}</div>
+        <div class="text-xs text-gray-500 mt-1">処理中</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-3 text-center">
+        <div class="text-2xl font-bold text-green-400">{{ done }}</div>
+        <div class="text-xs text-gray-500 mt-1">完了</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-3 text-center">
+        <div class="text-2xl font-bold text-red-400">{{ error }}</div>
+        <div class="text-xs text-gray-500 mt-1">エラー</div>
+      </div>
+    </div>
+
+    {# Currently ingesting files #}
+    {% if ingesting > 0 %}
+    <div class="mb-6">
+      <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">処理中</h2>
+      <div class="space-y-1">
+        {% for f in ingesting_files %}
+        <div class="text-sm text-gray-300 bg-gray-800 rounded px-3 py-1.5 font-mono truncate">
+          {{ f }}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# Recent errors #}
+    {% if error > 0 %}
+    <div>
+      <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">直近のエラー</h2>
+      <div class="space-y-2">
+        {% for e in recent_errors %}
+        <div class="bg-gray-800 border border-red-900 rounded-lg px-3 py-2">
+          <div class="text-sm text-gray-300 font-mono truncate">{{ e.filename }}</div>
+          <div class="text-xs text-red-400 mt-1">{{ e.error_msg }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

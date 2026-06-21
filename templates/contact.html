@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="max-w-3xl mx-auto px-4 py-10">
+
+  {# Back link #}
+  <a href="/" class="inline-flex items-center gap-1 text-sm text-gray-400 hover:text-gray-200 mb-6 transition-colors">
+    ← 検索へ戻る
+  </a>
+
+  {# Header: display title + timestamp #}
+  <div class="mb-4">
+    <h1 class="text-xl font-bold text-white leading-tight">{{ display_title }}</h1>
+    <p class="mt-1 font-mono text-sm text-gray-400">{{ time_str }}</p>
+  </div>
+
+  {# Caption text #}
+  <div class="rounded-lg bg-gray-800 border border-gray-700 px-4 py-3 mb-6">
+    <p class="text-white leading-relaxed">{{ text }}</p>
+  </div>
+
+  {# Enlarged preview of the selected frame — updated by selectFrame() #}
+  <div class="rounded-lg overflow-hidden bg-black mb-3">
+    <img
+      id="enlarged"
+      src="/thumb/{{ caption_id }}/{{ selected_frame }}"
+      alt="選択中のフレーム"
+      class="w-full object-contain"
+      style="max-height: 60vh;"
+    >
+  </div>
+
+  {# Thumbnail strip: tap a frame to update the enlarged preview above #}
+  <div class="grid grid-cols-6 gap-1 mb-4" id="thumb-grid">
+    {% for n in frames %}
+    <div
+      class="thumb-frame rounded overflow-hidden border-2 border-transparent cursor-pointer transition-colors"
+      data-frame="{{ n }}"
+      onclick="selectFrame({{ n }})"
+    >
+      {# bg-gray-700 acts as a loading skeleton until the image loads #}
+      <div class="relative bg-gray-700 animate-pulse aspect-video">
+        <img
+          src="/thumb/{{ caption_id }}/{{ n }}"
+          alt="フレーム {{ n }}"
+          class="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-200"
+          loading="lazy"
+          onload="this.classList.remove('opacity-0'); this.parentElement.classList.remove('animate-pulse', 'bg-gray-700')"
+        >
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {# Action button #}
+  <button
+    id="jpeg-btn"
+    onclick="handleJpeg({{ caption_id }}, selectedFrame)"
+    class="w-full py-3 rounded-lg bg-blue-600 hover:bg-blue-500 active:bg-blue-700
+           text-white font-semibold transition-colors disabled:opacity-50"
+  >
+    JPEGを取得
+  </button>
+
+  {# Toast notification #}
+  <div
+    id="toast"
+    class="hidden fixed bottom-6 left-1/2 -translate-x-1/2
+           bg-gray-700 text-white text-sm px-4 py-2 rounded-lg shadow-lg pointer-events-none"
+  ></div>
+
+  {# Reingest #}
+  <div class="mt-6 pt-4 border-t border-gray-800">
+    <div id="reingest-result"></div>
+    <button
+      hx-post="/reingest/{{ ts_file_id }}"
+      hx-target="#reingest-result"
+      hx-swap="innerHTML"
+      class="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+    >
+      再取り込み
+    </button>
+  </div>
+
+</div>
+
+<script>
+// Expose caption context to app.js for frame selection persistence.
+window.captionId = {{ caption_id }};
+window.initialFrame = {{ selected_frame }};
+</script>
+{% endblock %}

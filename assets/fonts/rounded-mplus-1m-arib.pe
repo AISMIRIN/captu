@@ -1,0 +1,90 @@
+#!/usr/bin/fontforge
+
+MPLUS = $0:h + "/rounded-mplus-1m-regular.ttf"
+WLCMARU = $0:h + "/wlcmaru2004aribu.ttf"
+GENNAME = "rounded-mplus-1m-arib"
+
+Open(WLCMARU)
+SelectWorthOutputting()
+Move(0, -120)
+
+Open(MPLUS)
+ScaleToEm(1024)
+
+# Pull up "gjpqy"
+SelectSingletons(0x0067, 0xFF47, 0x006A, 0xFF4A, 0x0070, 0xFF50, 0x0071, 0xFF51, 0x0079, 0xFF59)
+Scale(100, 90)
+Move(0, 45)
+
+copylist = LoadStringFromFile($0:h + "/" + GENNAME + "-copylist.txt")
+len = Strlen(copylist)
+i = 0
+ignore = 0
+section = 0
+uu = 0
+while (i < len)
+  # UTF-8 to Unicode
+  u = Ord(copylist, i++)
+  if (u & 0x80)
+    u = ((u & 0x3F) * 64) | (Ord(copylist, i++) & 0x3F)
+    if (u & 0x800)
+      u = ((u & 0x7FF) * 64) | (Ord(copylist, i++) & 0x3F)
+      if (u & 0x10000)
+        u = ((u & 0xFFFF) * 64) | (Ord(copylist, i++) & 0x3F)
+      endif
+    endif
+  endif
+  if (u == 0x23)
+    ignore = 1
+  elseif (u == 0x0A)
+    ignore = 0
+  elseif (!ignore)
+    if (u == 0x2E)
+      section++
+    elseif (section == 0 && u != 0x3000)
+      SelectSingletons(u)
+      DetachAndRemoveGlyphs()
+    elseif (section == 1 && u != 0x3000 && !WorthOutputting(u))
+      Open(WLCMARU)
+      SelectSingletons(u)
+      Copy()
+      Open(MPLUS)
+      SelectSingletons(u)
+      Paste()
+    elseif (section == 2)
+      if (uu)
+        if (uu != 0x3000 && u == 0x3000 && !WorthOutputting(uu))
+          Open(WLCMARU)
+          SelectSingletons(uu)
+          Copy()
+          Open(MPLUS)
+          SelectSingletons(uu)
+          Paste()
+        elseif (uu != 0x3000 && u != 0x3000 && uu != u && !WorthOutputting(uu))
+          SelectSingletons(u)
+          CopyReference()
+          SelectSingletons(uu)
+          Paste()
+        endif
+        uu = 0
+      else
+        uu = u
+      endif
+    endif
+  endif
+endloop
+
+SetFontNames(GENNAME, "Rounded M+ 1m for ARIB", "Rounded M+ 1m for ARIB",\
+             "", "Rounded M+, WadaLabMaruGo2004ARIB(RareEarth) mixed.", "1.3")
+SetTTFName(0x409, 3, "FontForge : Rounded M+ 1m for ARIB : 16-12-2012") # Copyright notice
+SetTTFName(0x409, 5, "") # Version string
+SetTTFName(0x409, 11, "") # URL Vendor
+SetTTFName(0x409, 16, "") # Preferred Family
+SetTTFName(0x409, 17, "") # Preferred Subfamily
+SetOS2Value("WinAscent", -120)
+SetOS2Value("WinDescent", -160)
+SetOS2Value("HHeadAscent", -120)
+SetOS2Value("HHeadDescent", 160)
+SetOS2Value("TypoLineGap", 0)
+SetOS2Value("HHeadLineGap", 0)
+Generate($0:h + "/" + GENNAME + ".ttf", "", 4)

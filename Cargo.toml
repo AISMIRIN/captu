@@ -1,0 +1,61 @@
+[workspace]
+members = ["crates/aribcaption-sys"]
+resolver = "2"
+
+[package]
+name = "captu"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[[bin]]
+name = "extract"
+path = "src/bin/extract.rs"
+
+[[bin]]
+name = "ingest_cli"
+path = "src/bin/ingest_cli.rs"
+
+
+[dependencies]
+# Web
+axum = { version = "0.7", features = ["macros"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["fs", "trace"] }
+
+# Template (compile-time validation)
+askama = "0.12"
+askama_axum = "0.4"
+
+# DB (compile-time query validation)
+sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite", "chrono"] }
+
+# Config
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Scheduling — TODO(Phase5): wire up periodic ingest via tokio-cron-scheduler
+tokio-cron-scheduler = "0.10"
+
+# LLM — TODO(Phase7): wire up AI search via reqwest + Gemini/Anthropic
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
+async-trait = "0.1"
+
+# String normalization
+unicode-normalization = "0.1"
+
+# ARIB subtitle rendering (PES demux + libaribcaption FFI)
+aribcaption-sys = { path = "crates/aribcaption-sys" }
+
+# Utilities
+glob = "0.3"
+png = "0.17"
+bincode = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
+encoding_rs = "0.8"

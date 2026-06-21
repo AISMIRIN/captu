@@ -1,0 +1,9 @@
+/target/
+/data/
+/cache/
+/.cache/
+config.toml
+.env
+*.ts
+/plans/
+/.claude/settings.local.json

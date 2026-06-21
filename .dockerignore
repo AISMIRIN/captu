@@ -1,0 +1,9 @@
+*.ts
+target/
+data/
+cache/
+.cache/
+.git/
+# Excluded from builder so config changes don't bust the cargo build cache.
+# config.toml is bind-mounted at runtime via compose.yaml.
+config.toml
