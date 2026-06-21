@@ -21,6 +21,13 @@ pub async fn scan_and_enqueue(config: &Config, pool: &SqlitePool) -> Result<usiz
         .collect();
     tracing::info!("ingest scan: {} TS files found", paths.len());
 
+    // Reconcile before enqueueing: remove DB rows whose .ts no longer exists on disk.
+    // Pass the glob count so reconcile_deleted can guard against NAS unmount (glob 0).
+    let removed = reconcile_deleted(config, pool, paths.len()).await?;
+    if removed > 0 {
+        tracing::info!("ingest scan: {} stale DB rows removed", removed);
+    }
+
     // Files already processed don't need re-queueing.
     let skip: HashSet<String> = sqlx::query_scalar(
         "SELECT path FROM ts_files WHERE status IN ('done', 'error', 'ingesting')",
@@ -279,6 +286,130 @@ async fn do_ingest(
     );
 
     Ok(())
+}
+
+/// Permanently remove a ts_file and everything derived from it:
+/// tags, captions (+ FTS rows via captions_ad trigger), thumbnails (via ON DELETE CASCADE),
+/// the cache directory, and the ts_files row itself.
+pub async fn delete_ts_file(pool: &SqlitePool, ts_file_id: i64, cache_dir: &Path) -> Result<()> {
+    // Fetch path first — needed for cache dir removal.
+    let path_str: Option<String> =
+        sqlx::query_scalar("SELECT path FROM ts_files WHERE id = ?")
+            .bind(ts_file_id)
+            .fetch_optional(pool)
+            .await?;
+
+    let path_str = match path_str {
+        Some(p) => p,
+        None => {
+            tracing::warn!("delete_ts_file: id={} not found, skipping", ts_file_id);
+            return Ok(());
+        }
+    };
+
+    // tags has no ON DELETE CASCADE, so delete before captions.
+    sqlx::query("DELETE FROM tags WHERE caption_id IN (SELECT id FROM captions WHERE ts_file_id = ?)")
+        .bind(ts_file_id)
+        .execute(pool)
+        .await?;
+
+    // captions_ad trigger removes captions from captions_fts; thumbnails cascade automatically.
+    sqlx::query("DELETE FROM captions WHERE ts_file_id = ?")
+        .bind(ts_file_id)
+        .execute(pool)
+        .await?;
+
+    // Remove cache subtree for this TS (subtitle PNGs + contact-sheet JPEGs).
+    let stem = Path::new(&path_str)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let cache_path = cache_dir.join(&stem);
+    if cache_path.exists() {
+        std::fs::remove_dir_all(&cache_path)?;
+    }
+
+    sqlx::query("DELETE FROM ts_files WHERE id = ?")
+        .bind(ts_file_id)
+        .execute(pool)
+        .await?;
+
+    tracing::info!("deleted ts_file id={} ({})", ts_file_id, path_str);
+    Ok(())
+}
+
+/// Remove DB rows whose source .ts no longer exists on disk.
+///
+/// `disk_file_count` is the number of .ts found by the current glob scan.
+/// When 0 — which happens when the NAS is unmounted but its mountpoint directory
+/// still exists — the reconcile is skipped entirely to prevent mass-deleting the DB.
+/// `nas_mount` not existing on disk is treated the same way.
+///
+/// `ingesting` rows are excluded to avoid racing with active workers.
+/// Returns the number of rows removed.
+pub async fn reconcile_deleted(
+    config: &Config,
+    pool: &SqlitePool,
+    disk_file_count: usize,
+) -> Result<usize> {
+    // Guard 1: nas_mount does not exist (e.g. never mounted).
+    if !Path::new(&config.paths.nas_mount).exists() {
+        tracing::warn!(
+            "reconcile: nas_mount '{}' does not exist — skipping reconcile",
+            config.paths.nas_mount
+        );
+        return Ok(0);
+    }
+
+    // Guard 2: glob returned 0 files — most likely an NAS unmount whose mountpoint
+    // directory still exists but is empty.
+    if disk_file_count == 0 {
+        tracing::warn!(
+            "reconcile: glob returned 0 .ts files — skipping reconcile to avoid mass-delete \
+             (NAS may be unmounted)"
+        );
+        return Ok(0);
+    }
+
+    // Collect all trackable rows: done / error / pending.  Exclude ingesting.
+    let rows: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT id, path FROM ts_files WHERE status IN ('done', 'error', 'pending')",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    if rows.is_empty() {
+        return Ok(0);
+    }
+
+    // Check path existence in a blocking thread (many stat(2) calls).
+    let missing_ids: Vec<i64> = tokio::task::spawn_blocking(move || {
+        rows.into_iter()
+            .filter(|(_, path)| !Path::new(path).exists())
+            .map(|(id, _)| id)
+            .collect()
+    })
+    .await?;
+
+    let cache_dir = PathBuf::from(&config.paths.cache_dir);
+    let count = missing_ids.len();
+
+    for id in missing_ids {
+        delete_ts_file(pool, id, &cache_dir).await?;
+    }
+
+    // Purge programs that are no longer referenced by any ts_file.
+    if count > 0 {
+        sqlx::query(
+            "DELETE FROM programs \
+             WHERE id NOT IN \
+               (SELECT DISTINCT program_id FROM ts_files WHERE program_id IS NOT NULL)",
+        )
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(count)
 }
 
 /// Reset a single TS file: delete captions (FTS synced via captions_ad trigger),
