@@ -6,7 +6,7 @@ use axum::{routing::{get, post}, Router};
 use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
-use captu::{config::Config, db, ingest};
+use captu::{config::Config, db, ingest, scheduler};
 
 mod routes;
 
@@ -28,16 +28,26 @@ async fn main() -> anyhow::Result<()> {
     // Pool size: concurrency workers + headroom for web handlers.
     let pool = db::init_db(&config.paths.db_path, config.ingest.concurrency + 5).await?;
 
+    // Shared so a scheduled tick won't overlap the startup scan or another tick.
+    let ingest_guard: scheduler::IngestGuard =
+        std::sync::Arc::new(tokio::sync::Mutex::new(()));
+
     if config.ingest.run_on_startup {
         let cfg = config.clone();
         let pool_clone = pool.clone();
+        let guard = ingest_guard.clone();
         tokio::spawn(async move {
+            let _lock = guard.lock().await;
             tracing::info!("startup ingest: beginning scan");
             if let Err(e) = ingest::scan_and_ingest(cfg, pool_clone).await {
                 tracing::error!("startup ingest failed: {:#}", e);
             }
         });
     }
+
+    // Keep the scheduler alive for the whole process lifetime (drop = stop).
+    let _scheduler =
+        scheduler::start(config.clone(), pool.clone(), ingest_guard).await?;
 
     let state = routes::AppState {
         pool,

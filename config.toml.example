@@ -14,7 +14,10 @@ height = 1080          # output height in pixels
 jpeg_quality = 2       # ffmpeg -q:v value (2 = near-lossless; lower = better quality)
 
 [ingest]
-schedule_cron = "0 * * * * *"  # TODO(Phase5): not yet wired up
+# 6-field cron with seconds: "sec min hour dom mon dow"
+# e.g. "0 * * * * *" = every minute at :00 sec, "0 */30 * * * *" = every 30 min
+# Set to "" to disable periodic scanning (startup scan only).
+schedule_cron = "0 * * * * *"
 run_on_startup = true
 # Number of parallel ingest workers (recommended 2-4; tune to NAS bandwidth)
 concurrency = 3
