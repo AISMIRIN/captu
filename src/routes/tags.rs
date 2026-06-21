@@ -2,7 +2,8 @@ use anyhow::Result;
 use askama::Template;
 use axum::{
     extract::{Form, Path, State},
-    http::StatusCode,
+    http::{HeaderName, StatusCode},
+    response::IntoResponse,
 };
 use serde::Deserialize;
 use sqlx::{Row, SqlitePool};
@@ -37,12 +38,24 @@ pub struct TagOptionsTemplate {
     pub tags: Vec<String>,
 }
 
+/// Response header announcing that the global tag list changed.
+/// htmx listeners with `hx-trigger="tagsChanged from:body"` will re-fetch /api/tags.
+const HX_TRIGGER: (HeaderName, &str) = (
+    HeaderName::from_static("hx-trigger"),
+    "tagsChanged",
+);
+
+/// Wrap a TagsFragment with the tagsChanged trigger header.
+fn with_tags_trigger(frag: TagsFragment) -> impl IntoResponse {
+    ([HX_TRIGGER], frag)
+}
+
 /// POST /caption/:id/tags — add a tag (idempotent via INSERT OR IGNORE).
 pub async fn add_tag(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Form(form): Form<TagForm>,
-) -> Result<TagsFragment, StatusCode> {
+) -> Result<impl IntoResponse, StatusCode> {
     let tag = form.tag.trim().to_string();
 
     if !tag.is_empty() {
@@ -62,7 +75,7 @@ pub async fn add_tag(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    Ok(TagsFragment { caption_id: id, tags })
+    Ok(with_tags_trigger(TagsFragment { caption_id: id, tags }))
 }
 
 /// POST /caption/:id/tags/delete — remove a tag.
@@ -70,7 +83,7 @@ pub async fn delete_tag(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Form(form): Form<TagForm>,
-) -> Result<TagsFragment, StatusCode> {
+) -> Result<impl IntoResponse, StatusCode> {
     let tag = form.tag.trim().to_string();
 
     sqlx::query("DELETE FROM tags WHERE caption_id = ? AND tag = ?")
@@ -88,7 +101,7 @@ pub async fn delete_tag(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    Ok(TagsFragment { caption_id: id, tags })
+    Ok(with_tags_trigger(TagsFragment { caption_id: id, tags }))
 }
 
 /// GET /api/tags — list all distinct tags for autocomplete and filter select.

@@ -37,15 +37,18 @@
       <input type="date" name="date_to" id="date-to"
              class="px-2 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white text-sm focus:outline-none focus:border-blue-500">
 
-      {# Tag filter: options are loaded from /api/tags on page load #}
-      <select name="tag" id="tag-filter"
+      {# Tag filter picker: reloads options on load and whenever a tag is added/removed globally #}
+      <select id="tag-filter"
               class="px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white text-sm focus:outline-none focus:border-blue-500"
               hx-get="/api/tags"
-              hx-trigger="load"
+              hx-trigger="load, tagsChanged from:body"
               hx-target="this"
-              hx-swap="beforeend">
-        <option value="">タグ</option>
+              hx-swap="innerHTML">
       </select>
+      {# Active tag chips are rendered here by renderTagChips() #}
+      <div id="tag-active" class="flex flex-wrap gap-1 items-center"></div>
+      {# Newline-separated active tags — picked up by hx-include="#filter-bar [name]" #}
+      <input type="hidden" name="tags" id="active-tags">
 
       <div class="flex gap-1 ml-auto">
         <button type="button" data-filter="all"
@@ -63,9 +66,10 @@
   </div>
 
   {# Shared datalist for tag add-inputs in result cards #}
+  {# Tag autocomplete: also refreshes when tags change globally #}
   <datalist id="tag-list"
             hx-get="/api/tags"
-            hx-trigger="load"
+            hx-trigger="load, tagsChanged from:body"
             hx-target="this"
             hx-swap="innerHTML">
   </datalist>
@@ -94,8 +98,40 @@
 <script>
 // Pending state to restore ep/sub after the episodes fragment loads.
 var _restoreState = null;
-// Tag value to restore after the tag-filter options load via htmx.
-var _restoreTag = null;
+
+// ── Active tag chips ──────────────────────────────────────────────────────────
+var activeTags = [];
+
+// Re-render the chip strip and update the hidden input.
+function renderTagChips() {
+  var container = document.getElementById('tag-active');
+  var hidden = document.getElementById('active-tags');
+  if (!container) return;
+  container.innerHTML = '';
+  activeTags.forEach(function(t) {
+    var chip = document.createElement('span');
+    chip.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-blue-700 text-white';
+    chip.innerHTML =
+      '<span>' + t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' +
+      '<button type="button" class="text-blue-200 hover:text-white leading-none" aria-label="タグフィルタを外す">×</button>';
+    chip.querySelector('button').addEventListener('click', function() { removeTagFilter(t); });
+    container.appendChild(chip);
+  });
+  if (hidden) hidden.value = activeTags.join('\n');
+}
+
+function addTagFilter(v) {
+  if (!v || activeTags.indexOf(v) !== -1) return;
+  activeTags.push(v);
+  renderTagChips();
+  triggerSearch();
+}
+
+function removeTagFilter(v) {
+  activeTags = activeTags.filter(function(t) { return t !== v; });
+  renderTagChips();
+  triggerSearch();
+}
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 // noSearch: skip triggerSearch (used during state restoration).
@@ -120,7 +156,6 @@ function saveSearchState() {
   var dateFrom = document.getElementById('date-from');
   var dateTo = document.getElementById('date-to');
   var filter = document.getElementById('active-filter');
-  var tagFilter = document.getElementById('tag-filter');
   sessionStorage.setItem('captu_search', JSON.stringify({
     q: q ? q.value : '',
     program_id: programSelect ? programSelect.value : '',
@@ -129,7 +164,7 @@ function saveSearchState() {
     date_from: dateFrom ? dateFrom.value : '',
     date_to: dateTo ? dateTo.value : '',
     filter: filter ? filter.value : 'all',
-    tag: tagFilter ? tagFilter.value : ''
+    tags: activeTags
   }));
 }
 
@@ -140,15 +175,21 @@ function triggerSearch() {
   if (input) htmx.trigger(input, 'dosearch');
 }
 
-// ── Re-fire search when date or other filter-bar controls change ──────────────
+// ── Handle tag-filter select: add selected tag as chip, reset picker ──────────
 document.addEventListener('change', function(e) {
+  if (e.target.id === 'tag-filter') {
+    // Add value as active chip; ignore the placeholder (empty value).
+    if (e.target.value) addTagFilter(e.target.value);
+    e.target.value = '';
+    return;
+  }
   if (e.target.id === 'program-select') return; // htmx handles /api/episodes swap
   if (e.target.closest('#filter-bar')) {
     triggerSearch();
   }
 });
 
-// ── After htmx swaps #ep-or-sub or #tag-filter: restore state, search ────────
+// ── After htmx swaps #ep-or-sub: restore state, search ───────────────────────
 document.body.addEventListener('htmx:afterSwap', function(e) {
   if (e.target.id === 'ep-or-sub') {
     // Attach change listeners to episode or subtitle selector.
@@ -165,13 +206,6 @@ document.body.addEventListener('htmx:afterSwap', function(e) {
       var subSel = e.target.querySelector('[name="sub"]');
       if (subSel && s.sub) subSel.value = s.sub;
     }
-    triggerSearch();
-  }
-
-  // Restore the tag filter after its options have loaded via htmx.
-  if (e.target.id === 'tag-filter' && _restoreTag) {
-    e.target.value = _restoreTag;
-    _restoreTag = null;
     triggerSearch();
   }
 });
@@ -196,8 +230,11 @@ document.addEventListener('DOMContentLoaded', function() {
   var dt = document.getElementById('date-to');
   if (dt && state.date_to) dt.value = state.date_to;
 
-  // Tag filter options load via htmx; store the value to set after options arrive.
-  if (state.tag) _restoreTag = state.tag;
+  // Restore active tag chips (no need to wait for options; chips reconstruct from saved array).
+  if (Array.isArray(state.tags) && state.tags.length) {
+    activeTags = state.tags;
+    renderTagChips();
+  }
 
   // Restore program selector.
   var programSelect = document.getElementById('program-select');

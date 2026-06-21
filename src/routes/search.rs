@@ -93,8 +93,9 @@ pub struct SearchParams {
     pub date_from: Option<String>,
     #[serde(default, deserialize_with = "empty_as_none_string")]
     pub date_to: Option<String>,
+    /// Newline-separated list of tags for AND filtering.
     #[serde(default, deserialize_with = "empty_as_none_string")]
-    pub tag: Option<String>,
+    pub tags: Option<String>,
     pub filter: Option<String>,
     #[serde(default, deserialize_with = "empty_as_none_i64")]
     pub page: Option<i64>,
@@ -137,12 +138,21 @@ pub async fn search(
     let rep_frame = state.config.capture.thumb_count as i64 / 2;
 
     let active_q = if q.len() >= 2 { Some(q.as_str()) } else { None };
+    let tag_list: Vec<&str> = params
+        .tags
+        .as_deref()
+        .unwrap_or("")
+        .split('\n')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+
     let has_filter = params.program_id.is_some()
         || params.ep.is_some()
         || params.sub.is_some()
         || params.date_from.is_some()
         || params.date_to.is_some()
-        || params.tag.is_some();
+        || !tag_list.is_empty();
     let tab_active = filter != "all";
 
     // Return empty unless something is actually specified.
@@ -157,7 +167,7 @@ pub async fn search(
     }
 
     let (results, total) =
-        run_search(&state, active_q, &params, &filter, page, rep_frame)
+        run_search(&state, active_q, &params, &tag_list, &filter, page, rep_frame)
             .await
             .map_err(|e| {
                 tracing::error!("search error: {:#}", e);
@@ -180,6 +190,7 @@ async fn run_search(
     state: &AppState,
     q: Option<&str>,
     params: &SearchParams,
+    tag_list: &[&str],
     filter: &str,
     page: i64,
     rep_frame: i64,
@@ -215,7 +226,8 @@ async fn run_search(
     if params.date_to.is_some() {
         conditions.push("f.air_date <= ?".into());
     }
-    if params.tag.is_some() {
+    // Each tag in tag_list adds an independent EXISTS condition (AND semantics).
+    for _ in tag_list {
         conditions.push(
             "EXISTS(SELECT 1 FROM tags tg WHERE tg.caption_id = c.id AND tg.tag = ?)".into(),
         );
@@ -255,7 +267,7 @@ async fn run_search(
     if let Some(ref s) = bind_sub   { cq = cq.bind(s.as_str()); }
     if let Some(ref d) = params.date_from { cq = cq.bind(d.as_str()); }
     if let Some(ref d) = params.date_to   { cq = cq.bind(d.as_str()); }
-    if let Some(ref t) = params.tag  { cq = cq.bind(t.as_str()); }
+    for t in tag_list { cq = cq.bind(*t); }
 
     let total: i64 = cq.fetch_one(&state.pool).await?;
 
@@ -296,7 +308,7 @@ async fn run_search(
     if let Some(ref s) = bind_sub   { mq = mq.bind(s.as_str()); }
     if let Some(ref d) = params.date_from { mq = mq.bind(d.as_str()); }
     if let Some(ref d) = params.date_to   { mq = mq.bind(d.as_str()); }
-    if let Some(ref t) = params.tag  { mq = mq.bind(t.as_str()); }
+    for t in tag_list { mq = mq.bind(*t); }
     mq = mq.bind(PAGE_SIZE).bind(offset);
 
     let rows = mq.fetch_all(&state.pool).await?;
