@@ -25,6 +25,11 @@ pub struct EpisodeItem {
     pub air_date: Option<String>,
 }
 
+pub struct SubtitleItem {
+    pub title: String,
+    pub air_date: Option<String>,
+}
+
 /// Fragment returned to htmx when the program selector changes.
 /// If all episodes have no episode_number, shows a subtitle selector; otherwise shows an episode list.
 #[derive(Template)]
@@ -33,7 +38,7 @@ pub struct EpisodesTemplate {
     /// Some → episode selector; None → subtitle selector
     pub episodes: Option<Vec<EpisodeItem>>,
     /// Distinct subtitle values when episodes is None (all rows lack episode_number).
-    pub subtitles: Option<Vec<String>>,
+    pub subtitles: Option<Vec<SubtitleItem>>,
 }
 
 #[derive(Deserialize)]
@@ -84,9 +89,10 @@ pub async fn episodes(
 
     if all_null {
         let sub_rows = sqlx::query(
-            "SELECT DISTINCT episode_title FROM ts_files
+            "SELECT episode_title, MIN(air_date) AS air_date FROM ts_files
              WHERE program_id = ? AND status = 'done' AND episode_title IS NOT NULL
-             ORDER BY episode_title",
+             GROUP BY episode_title
+             ORDER BY air_date",
         )
         .bind(pid)
         .fetch_all(&state.pool)
@@ -96,9 +102,12 @@ pub async fn episodes(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-        let subtitles: Vec<String> = sub_rows
+        let subtitles: Vec<SubtitleItem> = sub_rows
             .iter()
-            .map(|r| r.get::<String, _>("episode_title"))
+            .map(|r| SubtitleItem {
+                title: r.get::<String, _>("episode_title"),
+                air_date: r.get("air_date"),
+            })
             .collect();
 
         Ok(EpisodesTemplate {

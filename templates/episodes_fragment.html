@@ -18,7 +18,7 @@
         class="px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white text-sm focus:outline-none focus:border-blue-500">
   <option value="">サブタイトルを選択</option>
   {% for s in subs %}
-  <option value="{{ s }}">{{ s }}</option>
+  <option value="{{ s.title }}">{{ s.title }}{% if let Some(d) = s.air_date %} ({{ d }}){% endif %}</option>
   {% endfor %}
 </select>
 {% endif %}
