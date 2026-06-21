@@ -1,36 +1,43 @@
+{% import "macros.html" as m %}
 {% for r in results %}
 {% if r.has_thumb %}
-<a href="/contact/{{ r.id }}"
-   class="flex gap-3 mb-3 rounded-lg bg-gray-800 border border-gray-700 p-3
-          hover:border-gray-500 transition-colors cursor-pointer">
-  <img src="/thumb/{{ r.id }}/{{ r.preview_frame }}"
-       alt=""
-       class="w-24 h-auto rounded shrink-0 object-cover bg-gray-700"
-       loading="lazy">
-  <div class="min-w-0 flex-1">
+<div class="mb-3 rounded-lg bg-gray-800 border border-gray-700 hover:border-gray-500 transition-colors">
+  <a href="/contact/{{ r.id }}" class="flex gap-3 p-3 cursor-pointer">
+    <img src="/thumb/{{ r.id }}/{{ r.preview_frame }}"
+         alt=""
+         class="w-24 h-auto rounded shrink-0 object-cover bg-gray-700"
+         loading="lazy">
+    <div class="min-w-0 flex-1">
+      <div class="flex items-baseline justify-between gap-4 mb-1">
+        <span class="font-medium text-blue-400 truncate">{{ r.display_title }}</span>
+        <span class="shrink-0 font-mono text-xs text-gray-400">{{ r.time_str }}</span>
+      </div>
+      <p class="text-white text-sm leading-snug">{{ r.text }}</p>
+      {% if let Some(date) = r.air_date %}
+      <p class="mt-1 text-xs text-gray-500">{{ date }}</p>
+      {% endif %}
+    </div>
+  </a>
+  <div id="tags-{{ r.id }}" class="px-3 pb-2">
+    {% call m::tag_block(r.id, r.tags.as_slice()) %}
+  </div>
+</div>
+{% else %}
+<div class="mb-3 rounded-lg bg-gray-800 border border-gray-700 hover:border-gray-500 transition-colors">
+  <a href="/contact/{{ r.id }}" class="block p-4 cursor-pointer">
     <div class="flex items-baseline justify-between gap-4 mb-1">
       <span class="font-medium text-blue-400 truncate">{{ r.display_title }}</span>
       <span class="shrink-0 font-mono text-xs text-gray-400">{{ r.time_str }}</span>
     </div>
-    <p class="text-white text-sm leading-snug">{{ r.text }}</p>
+    <p class="text-white leading-snug">{{ r.text }}</p>
     {% if let Some(date) = r.air_date %}
     <p class="mt-1 text-xs text-gray-500">{{ date }}</p>
     {% endif %}
+  </a>
+  <div id="tags-{{ r.id }}" class="px-3 pb-2">
+    {% call m::tag_block(r.id, r.tags.as_slice()) %}
   </div>
-</a>
-{% else %}
-<a href="/contact/{{ r.id }}"
-   class="block mb-3 rounded-lg bg-gray-800 border border-gray-700 p-4
-          hover:border-gray-500 transition-colors cursor-pointer">
-  <div class="flex items-baseline justify-between gap-4 mb-1">
-    <span class="font-medium text-blue-400 truncate">{{ r.display_title }}</span>
-    <span class="shrink-0 font-mono text-xs text-gray-400">{{ r.time_str }}</span>
-  </div>
-  <p class="text-white leading-snug">{{ r.text }}</p>
-  {% if let Some(date) = r.air_date %}
-  <p class="mt-1 text-xs text-gray-500">{{ date }}</p>
-  {% endif %}
-</a>
+</div>
 {% endif %}
 {% endfor %}
 

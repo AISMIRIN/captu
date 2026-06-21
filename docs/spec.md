@@ -187,13 +187,16 @@ CREATE TRIGGER IF NOT EXISTS captions_ad AFTER DELETE ON captions BEGIN
     INSERT INTO captions_fts(captions_fts, rowid, text) VALUES ('delete', old.id, old.text);
 END;
 
--- タグ (予約・現状未使用: APIもUIも未実装)
+-- タグ
+-- ON DELETE CASCADE: captions 削除（再取り込み等）時にタグも自動消去される
+-- 既知の制約: reingest で caption が作り直されると id が変わるためタグは失われる
 CREATE TABLE IF NOT EXISTS tags (
     id         INTEGER PRIMARY KEY,
-    caption_id INTEGER NOT NULL REFERENCES captions(id),
+    caption_id INTEGER NOT NULL REFERENCES captions(id) ON DELETE CASCADE,
     tag        TEXT NOT NULL,
     UNIQUE(caption_id, tag)
 );
+CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
 
 -- サムネ生成済みフラグ + ユーザー選択フレーム
 -- ON DELETE CASCADE により captions 削除 (再取り込み等) で自動消去
@@ -329,6 +332,7 @@ Stage 2 (decoder): ← pipe:1 を stdin で受け取る
 | `sub` | string | エピソードタイトルで部分一致絞り込み |
 | `date_from` | date | 放送日（以降） |
 | `date_to` | date | 放送日（以前） |
+| `tag` | string | タグで絞り込み |
 | `filter` | string | `all`（デフォルト） / `generated`（サムネあり） / `pending`（未生成） |
 | `page` | integer | 0始まりページ番号（50件/ページ） |
 
@@ -354,6 +358,15 @@ q・フィルタ・filter が全て未指定の場合は空結果を返す。
 
 ### GET /ingest/status
 取り込み状況（status 別カウント・最近のエラー）を HTML で返す。
+
+### POST /caption/:id/tags
+タグ追加（冪等）。`Form { tag: String }` を受け取り、当該 caption の最新タグリストを HTML フラグメントで返す。
+
+### POST /caption/:id/tags/delete
+タグ削除。`Form { tag: String }` を受け取り、最新タグリストを HTML フラグメントで返す。
+
+### GET /api/tags
+全ての distinct タグを返す（`<option>` リスト形式）。タグフィルタ select とオートコンプリート datalist の候補として使用。
 
 ### POST /reingest/:id
 指定 `ts_file_id` の status を `pending` にリセットして再取り込みキューに投入。

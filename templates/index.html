@@ -29,13 +29,23 @@
       <div id="ep-or-sub" class="flex gap-2 items-center"></div>
     </div>
 
-    {# Row 2: permanent date range (left) + thumbnail filter tabs (right) #}
+    {# Row 2: date range + tag filter (left) + thumbnail filter tabs (right) #}
     <div class="flex flex-wrap gap-2 items-center">
       <input type="date" name="date_from" id="date-from"
              class="px-2 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white text-sm focus:outline-none focus:border-blue-500">
       <span class="text-gray-400 text-sm">〜</span>
       <input type="date" name="date_to" id="date-to"
              class="px-2 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white text-sm focus:outline-none focus:border-blue-500">
+
+      {# Tag filter: options are loaded from /api/tags on page load #}
+      <select name="tag" id="tag-filter"
+              class="px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white text-sm focus:outline-none focus:border-blue-500"
+              hx-get="/api/tags"
+              hx-trigger="load"
+              hx-target="this"
+              hx-swap="beforeend">
+        <option value="">タグ</option>
+      </select>
 
       <div class="flex gap-1 ml-auto">
         <button type="button" data-filter="all"
@@ -52,7 +62,15 @@
     </div>
   </div>
 
-  {# Text search: #filter-bar [name] captures program/ep/sub/date/filter all at once #}
+  {# Shared datalist for tag add-inputs in result cards #}
+  <datalist id="tag-list"
+            hx-get="/api/tags"
+            hx-trigger="load"
+            hx-target="this"
+            hx-swap="innerHTML">
+  </datalist>
+
+  {# Text search: #filter-bar [name] captures program/ep/sub/date/filter/tag all at once #}
   <input
     type="text"
     name="q"
@@ -76,6 +94,8 @@
 <script>
 // Pending state to restore ep/sub after the episodes fragment loads.
 var _restoreState = null;
+// Tag value to restore after the tag-filter options load via htmx.
+var _restoreTag = null;
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 // noSearch: skip triggerSearch (used during state restoration).
@@ -100,6 +120,7 @@ function saveSearchState() {
   var dateFrom = document.getElementById('date-from');
   var dateTo = document.getElementById('date-to');
   var filter = document.getElementById('active-filter');
+  var tagFilter = document.getElementById('tag-filter');
   sessionStorage.setItem('captu_search', JSON.stringify({
     q: q ? q.value : '',
     program_id: programSelect ? programSelect.value : '',
@@ -107,7 +128,8 @@ function saveSearchState() {
     sub: subSel ? subSel.value : '',
     date_from: dateFrom ? dateFrom.value : '',
     date_to: dateTo ? dateTo.value : '',
-    filter: filter ? filter.value : 'all'
+    filter: filter ? filter.value : 'all',
+    tag: tagFilter ? tagFilter.value : ''
   }));
 }
 
@@ -126,7 +148,7 @@ document.addEventListener('change', function(e) {
   }
 });
 
-// ── After htmx swaps #ep-or-sub: attach listeners, restore state, search ─────
+// ── After htmx swaps #ep-or-sub or #tag-filter: restore state, search ────────
 document.body.addEventListener('htmx:afterSwap', function(e) {
   if (e.target.id === 'ep-or-sub') {
     // Attach change listeners to episode or subtitle selector.
@@ -143,6 +165,13 @@ document.body.addEventListener('htmx:afterSwap', function(e) {
       var subSel = e.target.querySelector('[name="sub"]');
       if (subSel && s.sub) subSel.value = s.sub;
     }
+    triggerSearch();
+  }
+
+  // Restore the tag filter after its options have loaded via htmx.
+  if (e.target.id === 'tag-filter' && _restoreTag) {
+    e.target.value = _restoreTag;
+    _restoreTag = null;
     triggerSearch();
   }
 });
@@ -166,6 +195,9 @@ document.addEventListener('DOMContentLoaded', function() {
   if (df && state.date_from) df.value = state.date_from;
   var dt = document.getElementById('date-to');
   if (dt && state.date_to) dt.value = state.date_to;
+
+  // Tag filter options load via htmx; store the value to set after options arrive.
+  if (state.tag) _restoreTag = state.tag;
 
   // Restore program selector.
   var programSelect = document.getElementById('program-select');

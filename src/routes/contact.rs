@@ -19,6 +19,8 @@ pub struct ContactTemplate {
     pub frames: Vec<u32>,
     /// Last user-selected frame (or middle frame if never chosen).
     pub selected_frame: i64,
+    /// Tags attached to this caption.
+    pub tags: Vec<String>,
 }
 
 pub async fn contact(
@@ -67,6 +69,12 @@ pub async fn contact(
 
     // Thumbnail generation is deferred to /thumb/:id/:n requests (with per-caption locking).
 
+    // Load tags for this caption.
+    let tags = super::tags::load_tags(&state.pool, id).await.map_err(|e| {
+        tracing::error!("load_tags {}: {:#}", id, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
     Ok(ContactTemplate {
         caption_id: id,
         ts_file_id,
@@ -75,5 +83,6 @@ pub async fn contact(
         text,
         frames: (0..thumb_count).collect(),
         selected_frame,
+        tags,
     })
 }

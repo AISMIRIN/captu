@@ -1,0 +1,21 @@
+{% macro tag_block(caption_id, tags) %}
+<div class="flex flex-wrap gap-1 items-center py-1">
+  {# One mini-form per chip so that the delete button can POST with the tag value #}
+  {% for t in tags %}
+  <form class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-gray-700 text-gray-300"
+        hx-post="/caption/{{ caption_id }}/tags/delete"
+        hx-target="#tags-{{ caption_id }}" hx-swap="innerHTML">
+    <input type="hidden" name="tag" value="{{ t }}">
+    <span>{{ t }}</span>
+    <button type="submit" class="text-gray-500 hover:text-red-400 leading-none" aria-label="タグを削除">×</button>
+  </form>
+  {% endfor %}
+  {# Add tag: Enter submits; the whole #tags-{id} div is replaced by the server response #}
+  <form class="inline-flex"
+        hx-post="/caption/{{ caption_id }}/tags"
+        hx-target="#tags-{{ caption_id }}" hx-swap="innerHTML">
+    <input type="text" name="tag" placeholder="＋タグ" list="tag-list" autocomplete="off"
+           class="px-2 py-0.5 rounded text-xs bg-gray-800 border border-gray-700 text-white placeholder-gray-600 w-16 focus:w-28 focus:outline-none focus:border-blue-500 transition-all">
+  </form>
+</div>
+{% endmacro %}

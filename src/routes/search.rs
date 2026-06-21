@@ -6,6 +6,7 @@ use axum::{
 };
 use serde::{Deserialize, Deserializer};
 use sqlx::Row;
+use std::collections::HashMap;
 
 use super::{display_title, like_escape, AppState};
 
@@ -75,6 +76,8 @@ pub struct SearchResult {
     pub has_thumb: bool,
     /// Frame index to show as preview (user-selected, or middle frame as fallback).
     pub preview_frame: i64,
+    /// Tags attached to this caption.
+    pub tags: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -90,6 +93,8 @@ pub struct SearchParams {
     pub date_from: Option<String>,
     #[serde(default, deserialize_with = "empty_as_none_string")]
     pub date_to: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none_string")]
+    pub tag: Option<String>,
     pub filter: Option<String>,
     #[serde(default, deserialize_with = "empty_as_none_i64")]
     pub page: Option<i64>,
@@ -136,7 +141,8 @@ pub async fn search(
         || params.ep.is_some()
         || params.sub.is_some()
         || params.date_from.is_some()
-        || params.date_to.is_some();
+        || params.date_to.is_some()
+        || params.tag.is_some();
     let tab_active = filter != "all";
 
     // Return empty unless something is actually specified.
@@ -209,6 +215,11 @@ async fn run_search(
     if params.date_to.is_some() {
         conditions.push("f.air_date <= ?".into());
     }
+    if params.tag.is_some() {
+        conditions.push(
+            "EXISTS(SELECT 1 FROM tags tg WHERE tg.caption_id = c.id AND tg.tag = ?)".into(),
+        );
+    }
     match filter {
         "generated" => {
             conditions.push(
@@ -244,6 +255,7 @@ async fn run_search(
     if let Some(ref s) = bind_sub   { cq = cq.bind(s.as_str()); }
     if let Some(ref d) = params.date_from { cq = cq.bind(d.as_str()); }
     if let Some(ref d) = params.date_to   { cq = cq.bind(d.as_str()); }
+    if let Some(ref t) = params.tag  { cq = cq.bind(t.as_str()); }
 
     let total: i64 = cq.fetch_one(&state.pool).await?;
 
@@ -284,11 +296,12 @@ async fn run_search(
     if let Some(ref s) = bind_sub   { mq = mq.bind(s.as_str()); }
     if let Some(ref d) = params.date_from { mq = mq.bind(d.as_str()); }
     if let Some(ref d) = params.date_to   { mq = mq.bind(d.as_str()); }
+    if let Some(ref t) = params.tag  { mq = mq.bind(t.as_str()); }
     mq = mq.bind(PAGE_SIZE).bind(offset);
 
     let rows = mq.fetch_all(&state.pool).await?;
 
-    let results = rows
+    let mut results: Vec<SearchResult> = rows
         .iter()
         .map(|row| {
             let start_ms: i64 = row.get("pts_start_ms");
@@ -310,9 +323,31 @@ async fn run_search(
                 air_date: row.get("air_date"),
                 has_thumb: has_thumb_int != 0,
                 preview_frame: row.get("preview_frame"),
+                tags: vec![],
             }
         })
         .collect();
+
+    // Bulk-load tags for the current page of results (single query, no N+1).
+    // IDs are i64 literals — no user input involved, so inline formatting is safe.
+    if !results.is_empty() {
+        let id_list: Vec<String> = results.iter().map(|r| r.id.to_string()).collect();
+        let tags_sql = format!(
+            "SELECT caption_id, tag FROM tags WHERE caption_id IN ({}) ORDER BY tag",
+            id_list.join(",")
+        );
+        let tag_rows = sqlx::query(&tags_sql).fetch_all(&state.pool).await?;
+        let mut tags_map: HashMap<i64, Vec<String>> = HashMap::new();
+        for row in &tag_rows {
+            tags_map
+                .entry(row.get::<i64, _>("caption_id"))
+                .or_default()
+                .push(row.get::<String, _>("tag"));
+        }
+        for r in &mut results {
+            r.tags = tags_map.remove(&r.id).unwrap_or_default();
+        }
+    }
 
     Ok((results, total))
 }

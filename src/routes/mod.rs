@@ -3,6 +3,7 @@ pub mod contact;
 pub mod episodes;
 pub mod ingest;
 pub mod search;
+pub mod tags;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

@@ -115,13 +115,18 @@ async fn create_schema(pool: &SqlitePool) -> Result<()> {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS tags (
             id         INTEGER PRIMARY KEY,
-            caption_id INTEGER NOT NULL REFERENCES captions(id),
+            caption_id INTEGER NOT NULL REFERENCES captions(id) ON DELETE CASCADE,
             tag        TEXT NOT NULL,
             UNIQUE(caption_id, tag)
         )",
     )
     .execute(pool)
     .await?;
+
+    // Index for tag-based filtering queries.
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag)")
+        .execute(pool)
+        .await?;
 
     // Tracks which captions have had thumbnails generated, and which frame was selected.
     // ON DELETE CASCADE ensures rows are removed automatically when captions are deleted (e.g. reingest).
