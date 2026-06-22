@@ -98,6 +98,11 @@ scripts/dev.sh build
 - ARIB字幕: `aribcaption-sys` (ワークスペースメンバー, libaribcaptionのFFIラッパー)
 - その他: serde, toml, glob, png, bincode, encoding_rs, unicode-normalization, tracing
 
+### テスト実行
+```bash
+scripts/dev.sh test -p captu --lib
+```
+
 ---
 
 ## 設定
@@ -430,7 +435,5 @@ async function handleJpeg(captionId, frameN) {
 
 ## 未実装・将来構想
 
-- **定期スケジューラ**: `schedule_cron` は設定に存在するが未配線（`plans/phase5-scheduler.md`）
 - **LLM AI検索**: 状況文 → FTS5候補 → LLMランク付け（`plans/phase7-ai-search.md`）
 - **マルチモーダル AI検索**: サムネ画像込みのLLMランク付け（`plans/phase8-multimodal.md`）
-- **タグ付け**: `tags` テーブルは予約済み、API/UI は未実装（`plans/tags.md`）
