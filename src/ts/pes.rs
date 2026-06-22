@@ -50,20 +50,42 @@ pub fn read_pes_blob(path: &Path) -> Result<Vec<CaptionPes>> {
 
 // ── PAT/PMT scanner ───────────────────────────────────────────────────────
 
-/// Scan the first ~50 000 TS packets to find the elementary PID of the ARIB
-/// caption stream (stream_type=0x06, data_component_id=0x0008 in ESInfo).
+/// Results from a single PAT+PMT pass over the TS header.
+pub struct PsiInfo {
+    /// Service IDs (program numbers) that carry an ARIB caption stream.
+    /// Falls back to all services with any stream_type=0x06 if no ARIB
+    /// descriptor is found.  Used by the EIT scanner to filter the right
+    /// service's present/following table.
+    pub caption_services: Vec<u16>,
+    /// Elementary PID of the ARIB caption stream (stream_type=0x06,
+    /// data_component_id=0x0008 or 0x0012).  Falls back to the first
+    /// stream_type=0x06 PID.  Used by the PES demultiplexer.
+    pub caption_pid: Option<u16>,
+}
+
+/// Scan the first ~50 000 TS packets, parse PAT + all PMTs in one pass, and
+/// return both the caption service IDs and the caption elementary PID.
 ///
-/// Falls back to the first stream_type=0x06 PID if no ARIB descriptor is found.
-pub fn find_caption_pid(ts_path: &Path) -> Option<u16> {
-    let mut file = File::open(ts_path).ok()?;
+/// Replaces the former `find_caption_pid` (pes.rs) and `find_caption_services`
+/// (epg.rs) which each performed the same PAT/PMT walk independently.
+pub fn scan_psi(ts_path: &Path) -> PsiInfo {
+    let mut file = match File::open(ts_path) {
+        Ok(f) => f,
+        Err(_) => return PsiInfo { caption_services: vec![], caption_pid: None },
+    };
     let mut packet = [0u8; 188];
 
-    // pid → program_id for PMT PIDs found in PAT
+    // pid → service_id (program_number) for PMT PIDs found in PAT
     let mut pmt_pids: HashMap<u16, u16> = HashMap::new();
     // section accumulation buffers: pid → (bytes_so_far, total_expected)
     let mut bufs: HashMap<u16, (Vec<u8>, usize)> = HashMap::new();
     let mut checked_pmts = std::collections::HashSet::<u16>::new();
 
+    // Services with confirmed ARIB caption descriptor (preferred).
+    let mut arib_services: Vec<u16> = Vec::new();
+    // Services with any 0x06 stream but no ARIB descriptor (fallback).
+    let mut fallback_services: Vec<u16> = Vec::new();
+    // Caption ES PIDs — same split.
     let mut arib_pid: Option<u16> = None;
     let mut fallback_pid: Option<u16> = None;
 
@@ -131,7 +153,7 @@ pub fn find_caption_pid(ts_path: &Path) -> Option<u16> {
         let data = bufs[&pid].0.clone();
 
         if pid == 0x0000 {
-            // PAT: extract PMT PIDs.
+            // PAT: extract service_id → PMT PID mapping.
             if data.len() < 8 {
                 continue;
             }
@@ -140,16 +162,15 @@ pub fn find_caption_pid(ts_path: &Path) -> Option<u16> {
             let end = (3 + slen).min(data.len()).saturating_sub(4);
             let mut p = 8usize;
             while p + 4 <= end {
-                let prog = ((data[p] as u16) << 8) | data[p + 1] as u16;
-                let pmt_pid =
-                    ((data[p + 2] as u16 & 0x1F) << 8) | data[p + 3] as u16;
-                if prog != 0 {
-                    pmt_pids.insert(pmt_pid, prog);
+                let svc  = ((data[p]     as u16) << 8) | data[p + 1] as u16;
+                let pmt  = ((data[p + 2] as u16 & 0x1F) << 8) | data[p + 3] as u16;
+                if svc != 0 {
+                    pmt_pids.insert(pmt, svc);
                 }
                 p += 4;
             }
-        } else {
-            // PMT
+        } else if let Some(&svc) = pmt_pids.get(&pid) {
+            // PMT: walk ES entries to find caption streams.
             if checked_pmts.contains(&pid) {
                 continue;
             }
@@ -165,6 +186,9 @@ pub fn find_caption_pid(ts_path: &Path) -> Option<u16> {
             let end = (3 + slen).min(data.len()).saturating_sub(4);
             let mut p = 12 + prog_info_len;
 
+            let mut has_arib = false;
+            let mut has_private = false;
+
             while p + 5 <= end {
                 let stream_type = data[p];
                 let es_pid = ((data[p + 1] as u16 & 0x1F) << 8) | data[p + 2] as u16;
@@ -172,39 +196,63 @@ pub fn find_caption_pid(ts_path: &Path) -> Option<u16> {
                     (((data[p + 3] as usize) & 0x0F) << 8) | data[p + 4] as usize;
 
                 if stream_type == 0x06 {
+                    has_private = true;
+                    // Scan ES descriptors for data_component_descriptor (tag=0xFD).
                     let desc_start = p + 5;
                     let desc_end = (desc_start + es_info_len).min(end);
                     let mut d = desc_start;
-                    let mut is_arib = false;
+                    let mut is_arib_es = false;
                     while d + 2 <= desc_end {
-                        let tag = data[d];
+                        let tag  = data[d];
                         let dlen = data[d + 1] as usize;
                         if tag == 0xFD && dlen >= 2 && d + 2 + dlen <= desc_end {
-                            let dc_id =
-                                ((data[d + 2] as u16) << 8) | data[d + 3] as u16;
+                            let dc_id = ((data[d + 2] as u16) << 8) | data[d + 3] as u16;
                             if dc_id == 0x0008 || dc_id == 0x0012 {
-                                is_arib = true;
+                                is_arib_es = true;
                             }
                         }
                         d += 2 + dlen;
                     }
-                    if is_arib && arib_pid.is_none() {
-                        arib_pid = Some(es_pid);
+                    if is_arib_es {
+                        has_arib = true;
+                        if arib_pid.is_none() {
+                            arib_pid = Some(es_pid);
+                        }
                     } else if fallback_pid.is_none() {
                         fallback_pid = Some(es_pid);
                     }
                 }
                 p += 5 + es_info_len;
             }
-        }
 
-        // Stop once we have scanned all PMTs.
-        if !pmt_pids.is_empty() && checked_pmts.len() >= pmt_pids.len() {
-            break;
+            if has_arib && !arib_services.contains(&svc) {
+                arib_services.push(svc);
+            } else if has_private && !fallback_services.contains(&svc) {
+                fallback_services.push(svc);
+            }
+
+            // Stop once all PMTs in the PAT have been processed.
+            if !pmt_pids.is_empty() && checked_pmts.len() >= pmt_pids.len() {
+                break;
+            }
         }
     }
 
-    arib_pid.or(fallback_pid)
+    let caption_services = if !arib_services.is_empty() {
+        arib_services
+    } else {
+        fallback_services
+    };
+    let caption_pid = arib_pid.or(fallback_pid);
+
+    PsiInfo { caption_services, caption_pid }
+}
+
+/// Thin wrapper kept for backward compatibility.
+/// Callers that only need the caption PID can use this directly;
+/// callers that also need service IDs should use `scan_psi` instead.
+pub fn find_caption_pid(ts_path: &Path) -> Option<u16> {
+    scan_psi(ts_path).caption_pid
 }
 
 // ── PES demultiplexer ─────────────────────────────────────────────────────

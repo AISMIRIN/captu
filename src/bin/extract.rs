@@ -22,9 +22,12 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from("/tmp/captu_extract"));
     let debug_raw = args.iter().any(|a| a == "--debug-raw");
 
+    // Single PAT/PMT pass — reused by both EPG and caption extraction below.
+    let psi = captu::ts::pes::scan_psi(ts_path);
+
     // EPG
     println!("=== EPG ===");
-    match captu::ts::epg::extract_epg(ts_path) {
+    match captu::ts::epg::extract_epg(ts_path, &psi.caption_services) {
         Ok(epg) => {
             println!("title:          {}", epg.title);
             println!("series_title:   {}", epg.series_title);
@@ -83,7 +86,7 @@ fn main() {
     // Normal caption extraction (text only, no rendering)
     println!();
     println!("=== Captions ===");
-    match captu::ts::subtitle::extract_captions(ts_path, &cache_dir) {
+    match captu::ts::subtitle::extract_captions(ts_path, &cache_dir, psi.caption_pid) {
         Ok(captions) => {
             println!("({} 件)", captions.len());
             for cap in &captions {

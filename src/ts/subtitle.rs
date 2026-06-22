@@ -97,16 +97,25 @@ pub(crate) fn encode_png(rgba: &[u8], w: u32, h: u32) -> Result<Vec<u8>> {
 
 /// Extract all ARIB caption events from a TS file.
 ///
+/// `caption_pid` must be the elementary PID returned by `pes::scan_psi`
+/// (or `None` when the TS has no caption stream).  Passing it in avoids
+/// re-reading the PAT/PMT — callers should run `scan_psi` once and share
+/// the result between `extract_epg` and `extract_captions`.
+///
 /// Saves the raw PES packet list to `cache/{stem}/captions.pes` for later
 /// on-demand rendering.  Returns caption text and timestamps for DB insertion
 /// only — no bitmaps are rendered here.
-pub fn extract_captions(ts_path: &Path, cache_dir: &Path) -> Result<Vec<Caption>> {
+pub fn extract_captions(
+    ts_path: &Path,
+    cache_dir: &Path,
+    caption_pid: Option<u16>,
+) -> Result<Vec<Caption>> {
     let stem = ts_path
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
-    let caption_pid = match pes::find_caption_pid(ts_path) {
+    let caption_pid = match caption_pid {
         Some(pid) => pid,
         None => {
             tracing::debug!("no ARIB caption PID in {}", ts_path.display());

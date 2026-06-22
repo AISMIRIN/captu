@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::Result;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
@@ -146,152 +145,6 @@ fn parse_eit_section(data: &[u8]) -> Option<EpgInfo> {
     }
 
     if epg.title.is_empty() { None } else { Some(epg) }
-}
-
-// Ask ffprobe which program contains the first subtitle stream.
-// Parses `-show_programs -show_streams -print_format ini` output:
-// program_id lines appear before their program's streams, so the program_id
-// immediately preceding a `codec_type=subtitle` line is the one we want.
-fn get_subtitle_service_id(ts_path: &Path) -> Option<u16> {
-    let out = Command::new("ffprobe")
-        .args([
-            "-v", "quiet",
-            "-show_programs",
-            "-show_streams",
-            "-print_format", "ini",
-            ts_path.to_str()?,
-        ])
-        .output()
-        .ok()?;
-
-    let text = String::from_utf8_lossy(&out.stdout);
-    let mut current_prog: Option<u16> = None;
-    for line in text.lines() {
-        if let Some(val) = line.strip_prefix("program_id=") {
-            current_prog = val.trim().parse::<u16>().ok();
-        } else if line.starts_with("codec_type=subtitle") {
-            if let Some(prog) = current_prog {
-                return Some(prog);
-            }
-        }
-    }
-    None
-}
-
-// Scan PAT + PMTs and return all service_ids that have an ARIB caption stream.
-// ARIB captions: stream_type=0x06 with data_component_descriptor (tag=0xFD,
-// data_component_id=0x0008 for caption or 0x0012 for superimpose).
-// Falls back to any 0x06 stream if no descriptor found.
-fn find_caption_services(ts_path: &Path) -> Vec<u16> {
-    let mut file = match File::open(ts_path) { Ok(f) => f, Err(_) => return vec![] };
-    let mut packet = [0u8; 188];
-
-    let mut pmt_pids: std::collections::HashMap<u16, u16> = std::collections::HashMap::new();
-    let mut checked_pmts: std::collections::HashSet<u16> = std::collections::HashSet::new();
-    let mut bufs: std::collections::HashMap<u16, (Vec<u8>, usize)> = std::collections::HashMap::new();
-    let mut caption_svcs: Vec<u16> = Vec::new();
-    let mut fallback_svcs: Vec<u16> = Vec::new(); // services with 0x06 but no ARIB descriptor
-
-    for _ in 0..50_000u32 {
-        if file.read_exact(&mut packet).is_err() { break; }
-        if packet[0] != 0x47 { continue; }
-
-        let pid = ((packet[1] as u16 & 0x1F) << 8) | packet[2] as u16;
-        if pid != 0x0000 && !pmt_pids.contains_key(&pid) { continue; }
-
-        let pusi = (packet[1] & 0x40) != 0;
-        let afc = (packet[3] & 0x30) >> 4;
-        if afc == 2 { continue; }
-
-        let mut ps = 4usize;
-        if afc == 3 { ps = 5 + packet[4] as usize; }
-        if ps >= 188 { continue; }
-
-        if pusi {
-            let ptr = packet[ps] as usize;
-            ps += 1 + ptr;
-            if ps + 3 > 188 { continue; }
-            let slen = (((packet[ps + 1] as usize) & 0x0F) << 8) | packet[ps + 2] as usize;
-            let total = 3 + slen;
-            let avail = 188 - ps;
-            let entry = bufs.entry(pid).or_default();
-            entry.0.clear();
-            entry.0.extend_from_slice(&packet[ps..ps + total.min(avail)]);
-            entry.1 = total;
-        } else if let Some(entry) = bufs.get_mut(&pid) {
-            if !entry.0.is_empty() {
-                let rem = entry.1.saturating_sub(entry.0.len());
-                let avail = 188 - ps;
-                let take = rem.min(avail);
-                entry.0.extend_from_slice(&packet[ps..ps + take]);
-            }
-        }
-
-        if let Some(entry) = bufs.get(&pid) {
-            if entry.0.len() < entry.1 || entry.1 == 0 { continue; }
-        } else { continue; }
-
-        let data = bufs[&pid].0.clone();
-
-        if pid == 0x0000 {
-            if data.len() < 8 { continue; }
-            let slen = (((data[1] as usize) & 0x0F) << 8) | data[2] as usize;
-            let end = (3 + slen).min(data.len()).saturating_sub(4);
-            let mut p = 8usize;
-            while p + 4 <= end {
-                let prog = ((data[p] as u16) << 8) | data[p + 1] as u16;
-                let pmt  = ((data[p + 2] as u16 & 0x1F) << 8) | data[p + 3] as u16;
-                if prog != 0 { pmt_pids.insert(pmt, prog); }
-                p += 4;
-            }
-        } else if let Some(&prog) = pmt_pids.get(&pid) {
-            if checked_pmts.contains(&pid) { continue; }
-            checked_pmts.insert(pid);
-            if data.len() < 12 { continue; }
-
-            let prog_info_len = (((data[10] as usize) & 0x0F) << 8) | data[11] as usize;
-            let slen = (((data[1] as usize) & 0x0F) << 8) | data[2] as usize;
-            let end = (3 + slen).min(data.len()).saturating_sub(4);
-            let mut p = 12 + prog_info_len;
-
-            let mut has_arib_caption = false;
-            let mut has_private_stream = false;
-
-            while p + 5 <= end {
-                let stream_type = data[p];
-                let es_info_len = (((data[p + 3] as usize) & 0x0F) << 8) | data[p + 4] as usize;
-                if stream_type == 0x06 {
-                    has_private_stream = true;
-                    // Scan ES_info for data_component_descriptor (tag=0xFD)
-                    let desc_start = p + 5;
-                    let desc_end = (desc_start + es_info_len).min(end);
-                    let mut d = desc_start;
-                    while d + 2 <= desc_end {
-                        let tag = data[d];
-                        let dlen = data[d + 1] as usize;
-                        if tag == 0xFD && dlen >= 2 && d + 2 + dlen <= desc_end {
-                            let dc_id = ((data[d + 2] as u16) << 8) | data[d + 3] as u16;
-                            if dc_id == 0x0008 || dc_id == 0x0012 {
-                                has_arib_caption = true;
-                            }
-                        }
-                        d += 2 + dlen;
-                    }
-                }
-                p += 5 + es_info_len;
-            }
-
-            if has_arib_caption && !caption_svcs.contains(&prog) {
-                caption_svcs.push(prog);
-            } else if has_private_stream && !fallback_svcs.contains(&prog) {
-                fallback_svcs.push(prog);
-            }
-
-            if !checked_pmts.is_empty() && checked_pmts.len() >= pmt_pids.len() { break; }
-        }
-    }
-
-    if !caption_svcs.is_empty() { caption_svcs } else { fallback_svcs }
 }
 
 // Scan EIT on PID=0x0012.
@@ -524,14 +377,15 @@ fn fill_series_episode(mut epg: EpgInfo) -> EpgInfo {
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
-pub fn extract_epg(ts_path: &Path) -> Result<EpgInfo> {
+/// Extract EPG info from the TS file.
+///
+/// `caption_services` must be the service IDs returned by `pes::scan_psi`
+/// (or an empty slice to scan all services).  Passing them in avoids
+/// re-reading the PAT/PMT — callers should run `scan_psi` once and share
+/// the result between `extract_epg` and `extract_captions`.
+pub fn extract_epg(ts_path: &Path, caption_services: &[u16]) -> Result<EpgInfo> {
     let file_size = std::fs::metadata(ts_path)?.len();
-    // Prefer ffprobe result (most reliable); fall back to PMT-based scan
-    let caption_svcs = if let Some(svc) = get_subtitle_service_id(ts_path) {
-        vec![svc]
-    } else {
-        find_caption_services(ts_path)
-    };
+    let caption_svcs = caption_services.to_vec();
 
     // Seek to 20% of file (KonomiTV's trick):
     // skips recording start margin where EIT still shows the previous programme.

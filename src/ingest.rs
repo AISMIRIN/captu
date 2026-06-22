@@ -204,17 +204,29 @@ async fn do_ingest(
     let path_buf = path.to_path_buf();
     let cache_dir = PathBuf::from(&config.paths.cache_dir);
 
-    // Run blocking extractions on dedicated threads.
-    let epg = {
+    // Parse PAT + PMT once to get both caption service IDs and the caption PES PID.
+    // This avoids re-reading the TS header in the two extraction steps below.
+    let psi = {
         let p = path_buf.clone();
-        tokio::task::spawn_blocking(move || epg::extract_epg(&p)).await??
+        tokio::task::spawn_blocking(move || arib_pes::scan_psi(&p)).await?
     };
 
-    let captions = {
+    // Run EIT scan (EPG) and PES demux (captions) in parallel on separate
+    // blocking threads.  Neither depends on the other's result.
+    let epg_task = {
+        let p = path_buf.clone();
+        let svcs = psi.caption_services.clone();
+        tokio::task::spawn_blocking(move || epg::extract_epg(&p, &svcs))
+    };
+    let cap_task = {
         let p = path_buf.clone();
         let c = cache_dir.clone();
-        tokio::task::spawn_blocking(move || subtitle::extract_captions(&p, &c)).await??
+        let pid = psi.caption_pid;
+        tokio::task::spawn_blocking(move || subtitle::extract_captions(&p, &c, pid))
     };
+    let (epg_res, cap_res) = tokio::join!(epg_task, cap_task);
+    let epg = epg_res??;
+    let captions = cap_res??;
 
     // Resolve program_id using series_title so episodes of the same series
     // share one programs row. Fall back to the raw title when no series separator.
