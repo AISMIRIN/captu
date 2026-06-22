@@ -97,7 +97,7 @@ fn parse_eit_section(data: &[u8]) -> Option<EpgInfo> {
                     if dlen >= 4 {
                         let name_len = d[3] as usize;
                         if 4 + name_len <= dlen {
-                            epg.title = decode_arib_b24(&d[4..4 + name_len]);
+                            epg.title = strip_arib_icons(&decode_arib_b24(&d[4..4 + name_len]));
                         }
                         let text_pos = 4 + name_len;
                         if text_pos + 1 <= dlen {
@@ -242,6 +242,15 @@ fn scan_eit(file: &mut File, service_ids: &[u16], max_packets: u32) -> Option<Ve
 }
 
 // ── Series/episode extraction helpers ─────────────────────────────────────────
+
+// Remove ARIB service indicator characters (U+1F100–U+1F2FF: squared alphanumerics /
+// squared ideographs used as broadcast icons like 🈓🈑).  These are valid Unicode but
+// carry no meaning in stored EPG text.
+fn strip_arib_icons(s: &str) -> String {
+    s.chars()
+        .filter(|&c| !('\u{1F100}'..='\u{1F2FF}').contains(&c))
+        .collect()
+}
 
 // Strip trailing broadcast flags like [字][デ][SS][終][再][解] from a title string.
 fn strip_broadcast_flags(s: &str) -> &str {
