@@ -29,7 +29,7 @@ captu/
 │   │   ├── pes.rs     # ARIB字幕PESデマクサ
 │   │   └── subtitle.rs # libaribcaption FFI字幕抽出・on-demand描画
 │   ├── media/
-│   │   └── capture.rs # ffmpeg 2段パイプライン・サムネ生成
+│   │   └── capture.rs # ffmpeg 単一パスサムネ生成
 │   ├── routes/        # axumルートハンドラ
 │   └── bin/
 │       ├── extract.rs    # 診断CLI: TSから字幕/EPGをダンプ

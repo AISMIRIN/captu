@@ -1,6 +1,5 @@
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use anyhow::{bail, Result};
 
@@ -56,18 +55,16 @@ pub fn thumb_path(cache_dir: &Path, stem: &str, id: i64, n: u32) -> PathBuf {
 ///
 /// # Pipeline
 /// ```text
-/// ffmpeg (stage 1)                   ffmpeg (stage 2)
-///   -ss pre_seek                       -i pipe:0
-///   -i ts                              [-i sub.png]
-///   -vf scale=WxH,setsar=1            -filter_complex "[0:v]select='...',setpts=…[v];
-///   -c:v mjpeg -q:v 2                               [v][1:v]overlay=eof_action=repeat[out]"
-///   -f matroska pipe:1                 -map [out] -fps_mode vfr -q:v {q} _tmp_%d.jpg
+/// ffmpeg (single pass)
+///   -ss pre_seek -t dur -i ts [-i sub.png]
+///   -vf  scale=WxH,setsar=1,select='eq(n,X)+…',setpts=N/FRAME_RATE/TB
+///   -filter_complex (subtitle variant adds overlay)
+///   -fps_mode vfr -q:v {q}  _tmp_%d.jpg
 /// ```
 ///
 /// The subtitle PNG (`cache/{stem}/sub/{id}.png`) is rendered on-demand by
 /// `subtitle::ensure_caption_png` at first access, so the thumbnail pipeline
-/// never reads the TS subtitle stream directly.  This eliminates PTS-discontinuity
-/// misalignment that plagued seek-based bitmap overlay approaches.
+/// never reads the TS subtitle stream directly.
 pub fn ensure_thumbnails(
     cfg: &Config,
     ts_path: &Path,
@@ -99,7 +96,8 @@ pub fn ensure_thumbnails(
     };
     let dur = (win_end - pre_seek) + 0.5;
 
-    // Frame indices in the MJPEG stream (terrestrial = 29.97 fps = 30000/1001).
+    // Frame indices counted from the first decoded frame after pre_seek
+    // (terrestrial = 29.97 fps = 30000/1001).
     let fps = 30_000.0_f64 / 1001.0;
     let frame_nums = frame_indices(pts_start_ms, pts_end_ms, count, fps);
 
@@ -109,41 +107,9 @@ pub fn ensure_thumbnails(
 
     let input_url = format!("file:{}", ts_path.to_str().unwrap_or(""));
 
-    // Ensure the subtitle PNG exists for this caption (on-demand rendering).
     let sub_png_opt = subtitle::ensure_caption_png(&cfg.capture, cache_dir, ts_path, id, pts_start_ms)?;
     let has_sub = sub_png_opt.is_some();
 
-    // Stage 1: decode video segment to MJPEG pipe (no subtitle processing).
-    // -ss before -i for fast keyframe seek; short -t guards against reading the whole file.
-    let mut enc = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-ss", &format!("{:.6}", pre_seek),
-            "-t",  &format!("{:.6}", dur),
-            "-i",  &input_url,
-            "-vf", &format!("scale={}:{},setsar=1", w, h),
-            "-c:v", "mjpeg",
-            "-q:v", "2",
-            "-an",
-            "-f", "matroska",
-            "pipe:1",
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-
-    let enc_stdout = enc.stdout.take().expect("enc stdout was piped");
-    let enc_stderr_pipe = enc.stderr.take().expect("enc stderr was piped");
-
-    // Drain enc stderr in a background thread so the OS pipe buffer never stalls enc.
-    let enc_stderr_thread = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let mut pipe = enc_stderr_pipe;
-        pipe.read_to_end(&mut buf).ok();
-        buf
-    });
-
-    // Stage 2: select frames from the MJPEG stream and composite subtitle PNG if present.
     let select_expr = frame_nums
         .iter()
         .map(|n| format!("eq(n\\,{})", n))
@@ -153,55 +119,55 @@ pub fn ensure_thumbnails(
     let tmp_pattern = thumbs_dir.join("_tmp_%d.jpg");
     let tmp_str = tmp_pattern.to_str().unwrap_or("").to_string();
 
-    let dec = if has_sub {
+    let pre_seek_str = format!("{:.6}", pre_seek);
+    let dur_str = format!("{:.6}", dur);
+    let q_str = q.to_string();
+
+    let out = if has_sub {
         let sub_str = sub_png_opt.as_ref().unwrap().to_str().unwrap_or("").to_string();
         let filter = format!(
-            "[0:v]select='{}',setpts=N/FRAME_RATE/TB[v];[v][1:v]overlay=eof_action=repeat[out]",
-            select_expr
+            "[0:v]scale={}:{},setsar=1,select='{}',setpts=N/FRAME_RATE/TB[v];[v][1:v]overlay=eof_action=repeat[out]",
+            w, h, select_expr
         );
         Command::new("ffmpeg")
             .args([
                 "-y",
-                "-i", "pipe:0",
-                "-i", &sub_str,
+                "-ss", &pre_seek_str,
+                "-t",  &dur_str,
+                "-i",  &input_url,
+                "-i",  &sub_str,
                 "-filter_complex", &filter,
                 "-map", "[out]",
                 "-fps_mode", "vfr",
-                "-q:v", &q.to_string(),
+                "-q:v", &q_str,
                 &tmp_str,
             ])
-            .stdin(Stdio::from(enc_stdout))
-            .stderr(Stdio::piped())
-            .spawn()?
+            .output()?
     } else {
-        let vf = format!("select='{}',setpts=N/FRAME_RATE/TB", select_expr);
+        let vf = format!(
+            "scale={}:{},setsar=1,select='{}',setpts=N/FRAME_RATE/TB",
+            w, h, select_expr
+        );
         Command::new("ffmpeg")
             .args([
                 "-y",
-                "-i", "pipe:0",
+                "-ss", &pre_seek_str,
+                "-t",  &dur_str,
+                "-i",  &input_url,
                 "-vf", &vf,
                 "-fps_mode", "vfr",
-                "-q:v", &q.to_string(),
+                "-q:v", &q_str,
                 &tmp_str,
             ])
-            .stdin(Stdio::from(enc_stdout))
-            .stderr(Stdio::piped())
-            .spawn()?
+            .output()?
     };
 
-    // Wait for dec first — it drives consumption of enc's stdout.
-    let dec_out = dec.wait_with_output()?;
-    let enc_status = enc.wait()?;
-    let enc_stderr = enc_stderr_thread.join().unwrap_or_default();
-
-    if !enc_status.success() || !dec_out.status.success() {
+    if !out.status.success() {
         bail!(
-            "thumbnail pipeline failed for {}:\n  enc exit: {}\n  enc stderr:\n{}\n  dec exit: {}\n  dec stderr:\n{}",
+            "thumbnail pipeline failed for {}:\n  exit: {}\n  stderr:\n{}",
             ts_path.display(),
-            enc_status,
-            String::from_utf8_lossy(&enc_stderr),
-            dec_out.status,
-            String::from_utf8_lossy(&dec_out.stderr),
+            out.status,
+            String::from_utf8_lossy(&out.stderr),
         );
     }
 

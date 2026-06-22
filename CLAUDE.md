@@ -20,9 +20,8 @@ src/
 │   └── subtitle.rs  # libaribcaption FFI字幕抽出・on-demand PNG描画
 │                    #   Caption { pts_start_ms, pts_end_ms, text }
 ├── media/
-│   └── capture.rs   # ffmpeg 2段パイプライン・サムネ生成
-│                    #   Stage1: TSセグメント → MJPEGパイプ
-│                    #   Stage2: MJPEG → フレーム選択 + 字幕PNGオーバーレイ → JPEG
+│   └── capture.rs   # ffmpeg 単一パスサムネ生成
+│                    #   scale → select → 字幕PNGオーバーレイ → JPEG (1コマンド)
 ├── routes/
 │   ├── search.rs    # GET /, GET /search
 │   ├── contact.rs   # GET /contact/:id (コンタクトシート)

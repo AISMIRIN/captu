@@ -37,7 +37,7 @@ captu/
 │   │   ├── pes.rs                 # ARIB字幕PESデマクサ
 │   │   └── subtitle.rs            # libaribcaption FFI経由の字幕抽出・on-demand PNG描画
 │   ├── media/
-│   │   └── capture.rs             # ffmpeg 2段パイプライン・サムネ生成
+│   │   └── capture.rs             # ffmpeg 単一パスサムネ生成
 │   └── routes/
 │       ├── mod.rs                 # AppState, display_title(), like_escape()
 │       ├── search.rs              # GET / , GET /search
@@ -295,22 +295,20 @@ pub struct EpgInfo {
 
 ## ffmpegパイプライン (media/capture.rs)
 
-### コンタクトシートサムネ生成 (2段パイプライン)
+### コンタクトシートサムネ生成 (単一パス)
 
 ```
-Stage 1 (encoder):
-  ffmpeg -y -ss {pre_seek} -t {dur} -i file:{ts}
-         -vf scale={W}:{H},setsar=1 -c:v mjpeg -q:v 2 -an -f matroska pipe:1
-
-Stage 2 (decoder): ← pipe:1 を stdin で受け取る
-  ffmpeg -y -i pipe:0 [-i {sub.png}]
-         -filter_complex "[0:v]select='...',setpts=N/FRAME_RATE/TB[v];
-                          [v][1:v]overlay=eof_action=repeat[out]"
-         -map [out] -fps_mode vfr -q:v {jpeg_quality} thumbs/_tmp_%d.jpg
+ffmpeg -y -ss {pre_seek} -t {dur} -i file:{ts} [-i {sub.png}]
+       -vf  "scale={W}:{H},setsar=1,select='eq(n,X)+…',setpts=N/FRAME_RATE/TB"
+       # 字幕ありの場合は -filter_complex でオーバーレイ:
+       # "[0:v]scale=…,select='…',setpts=…[v];[v][1:v]overlay=eof_action=repeat[out]"
+       -fps_mode vfr -q:v {jpeg_quality} thumbs/_tmp_%d.jpg
 ```
+
+中間 MJPEG エンコード・プロセス間パイプを廃止し、scale → select → overlay を1パスで処理する。
 
 **NAS越しシーク戦略:**
-- Stage1 の `-ss` を `-i` の前に置く（keyframe fast seek）→ NFS転送量最小化
+- `-ss` を `-i` の前に置く（keyframe fast seek）→ NFS転送量最小化
 - フレーム選択は `select='eq(n,{frame_num})+...'`（地上波 29.97fps 前提）
 - 字幕PNG（`cache/{stem}/sub/{caption_id}.png`）は on-demand 描画・キャッシュ。取り込み時に保存した PES ブロブから libaribcaption で生成（`subtitle.rs::ensure_caption_png`）
 
