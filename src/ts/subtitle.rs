@@ -93,6 +93,52 @@ pub(crate) fn encode_png(rgba: &[u8], w: u32, h: u32) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::encode_png;
+
+    #[test]
+    fn encode_png_roundtrip_dimensions() {
+        // Encode a 4×2 solid red RGBA image and decode it back to verify dimensions.
+        let w = 4u32;
+        let h = 2u32;
+        // RGBA: all pixels are opaque red
+        let rgba: Vec<u8> = (0..w * h).flat_map(|_| [255u8, 0, 0, 255]).collect();
+        let png_bytes = encode_png(&rgba, w, h).expect("encode should succeed");
+
+        // Decode with the png crate to verify the output is valid
+        let decoder = png::Decoder::new(png_bytes.as_slice());
+        let mut reader = decoder.read_info().expect("PNG decode failed");
+        let mut buf = vec![0u8; reader.output_buffer_size()];
+        let info = reader.next_frame(&mut buf).expect("PNG frame read failed");
+
+        assert_eq!(info.width, w);
+        assert_eq!(info.height, h);
+        assert_eq!(info.color_type, png::ColorType::Rgba);
+    }
+
+    #[test]
+    fn encode_png_1x1_transparent() {
+        // Fully transparent single pixel
+        let png_bytes = encode_png(&[0u8, 0, 0, 0], 1, 1).expect("encode should succeed");
+        let decoder = png::Decoder::new(png_bytes.as_slice());
+        let mut reader = decoder.read_info().expect("PNG decode failed");
+        let mut buf = vec![0u8; reader.output_buffer_size()];
+        reader.next_frame(&mut buf).expect("frame read failed");
+        assert_eq!(buf[3], 0, "alpha channel should be 0 (transparent)");
+    }
+
+    #[test]
+    fn encode_png_nonempty() {
+        let rgba = vec![128u8; 8 * 8 * 4]; // 8×8 grey
+        let bytes = encode_png(&rgba, 8, 8).expect("encode should succeed");
+        // PNG files start with the 8-byte PNG signature
+        assert!(bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]));
+    }
+}
+
 // ── Ingest-time extraction ─────────────────────────────────────────────────
 
 /// Extract all ARIB caption events from a TS file.

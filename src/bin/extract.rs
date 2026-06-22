@@ -4,8 +4,8 @@ fn format_ms(ms: i64) -> String {
     let h = ms / 3_600_000;
     let m = (ms % 3_600_000) / 60_000;
     let s = (ms % 60_000) / 1_000;
-    let cs = (ms % 1_000) / 10;
-    format!("{:02}:{:02}:{:02}.{:03}", h, m, s, cs)
+    let msec = ms % 1_000;  // milliseconds component (0-999), not centiseconds
+    format!("{:02}:{:02}:{:02}.{:03}", h, m, s, msec)
 }
 
 fn main() {
@@ -99,5 +99,44 @@ fn main() {
             }
         }
         Err(e) => eprintln!("Caption error: {:#}", e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_ms;
+
+    #[test]
+    fn format_ms_zero() {
+        assert_eq!(format_ms(0), "00:00:00.000");
+    }
+
+    #[test]
+    fn format_ms_milliseconds_width() {
+        // 50 ms must produce ".050", not ".005" (centisecond bug)
+        assert_eq!(format_ms(50), "00:00:00.050");
+    }
+
+    #[test]
+    fn format_ms_one_second() {
+        assert_eq!(format_ms(1_000), "00:00:01.000");
+    }
+
+    #[test]
+    fn format_ms_mixed() {
+        // 1h 2m 3s 456ms
+        let ms = 1 * 3_600_000 + 2 * 60_000 + 3 * 1_000 + 456;
+        assert_eq!(format_ms(ms), "01:02:03.456");
+    }
+
+    #[test]
+    fn format_ms_999ms() {
+        assert_eq!(format_ms(999), "00:00:00.999");
+    }
+
+    #[test]
+    fn format_ms_large_hours() {
+        // 100h exactly
+        assert_eq!(format_ms(100 * 3_600_000), "100:00:00.000");
     }
 }

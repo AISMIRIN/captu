@@ -32,7 +32,9 @@ impl FromRef<AppState> for SqlitePool {
 }
 
 /// Format milliseconds as HH:MM:SS or MM:SS for display.
+/// Negative values are clamped to zero (displayed as 00:00).
 pub(crate) fn fmt_ms(ms: i64) -> String {
+    let ms = ms.max(0);
     let total = ms / 1000;
     let h = total / 3600;
     let m = (total % 3600) / 60;
@@ -68,4 +70,113 @@ pub(crate) fn like_escape(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('%', "\\%")
         .replace('_', "\\_")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{display_title, fmt_ms, like_escape};
+
+    // ── fmt_ms ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn fmt_ms_zero() {
+        assert_eq!(fmt_ms(0), "00:00");
+    }
+
+    #[test]
+    fn fmt_ms_negative_clamped_to_zero() {
+        assert_eq!(fmt_ms(-1000), "00:00");
+        assert_eq!(fmt_ms(i64::MIN), "00:00");
+    }
+
+    #[test]
+    fn fmt_ms_under_one_hour() {
+        // 1m 30s
+        assert_eq!(fmt_ms(90_000), "01:30");
+    }
+
+    #[test]
+    fn fmt_ms_exactly_one_hour() {
+        assert_eq!(fmt_ms(3_600_000), "01:00:00");
+    }
+
+    #[test]
+    fn fmt_ms_with_hours() {
+        // 2h 5m 9s
+        let ms = 2 * 3_600_000 + 5 * 60_000 + 9 * 1_000;
+        assert_eq!(fmt_ms(ms), "02:05:09");
+    }
+
+    #[test]
+    fn fmt_ms_59s_boundary() {
+        assert_eq!(fmt_ms(59_999), "00:59");
+        assert_eq!(fmt_ms(60_000), "01:00");
+    }
+
+    // ── display_title ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn display_title_title_only() {
+        assert_eq!(display_title("番組名", None, None), "番組名");
+    }
+
+    #[test]
+    fn display_title_empty_title() {
+        // Empty title is omitted
+        assert_eq!(display_title("", Some(3), Some("タイトル")), "#3 タイトル");
+    }
+
+    #[test]
+    fn display_title_all_parts() {
+        assert_eq!(
+            display_title("シリーズ名", Some(12), Some("サブタイトル")),
+            "シリーズ名 #12 サブタイトル"
+        );
+    }
+
+    #[test]
+    fn display_title_sub_trimmed() {
+        // Leading/trailing whitespace in sub should be trimmed
+        assert_eq!(display_title("番組", None, Some("  サブ  ")), "番組 サブ");
+    }
+
+    #[test]
+    fn display_title_blank_sub_omitted() {
+        assert_eq!(display_title("番組", None, Some("   ")), "番組");
+    }
+
+    // ── like_escape ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn like_escape_percent() {
+        assert_eq!(like_escape("100%"), "100\\%");
+    }
+
+    #[test]
+    fn like_escape_underscore() {
+        assert_eq!(like_escape("a_b"), "a\\_b");
+    }
+
+    #[test]
+    fn like_escape_backslash() {
+        assert_eq!(like_escape("a\\b"), "a\\\\b");
+    }
+
+    #[test]
+    fn like_escape_combined() {
+        // Input "10% off_\\special" should escape all three characters.
+        // The backslash must be escaped first to avoid double-escaping.
+        assert_eq!(like_escape("10% off_\\special"), "10\\% off\\_\\\\special");
+    }
+
+    #[test]
+    fn like_escape_injection_attempt() {
+        // A string that looks like a LIKE wildcard must be neutralised.
+        assert_eq!(like_escape("%all%"), "\\%all\\%");
+    }
+
+    #[test]
+    fn like_escape_plain_string() {
+        assert_eq!(like_escape("hello"), "hello");
+    }
 }

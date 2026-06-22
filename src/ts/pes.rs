@@ -392,7 +392,7 @@ pub fn demux_caption_pes(ts_path: &Path, caption_pid: u16) -> Vec<CaptionPes> {
 
 /// Decode a 5-byte PTS field from a PES optional header.
 /// The 33-bit value is packed as: [4 bits marker] [15 bits] [marker] [15 bits] [marker].
-fn parse_pts(p: &[u8]) -> u64 {
+pub(crate) fn parse_pts(p: &[u8]) -> u64 {
     let b0 = p[0] as u64;
     let b1 = p[1] as u64;
     let b2 = p[2] as u64;
@@ -403,7 +403,7 @@ fn parse_pts(p: &[u8]) -> u64 {
 
 /// Skip the fixed (6-byte) + optional (variable-length) PES header and return
 /// the payload slice, which starts with data_identifier (0x80 for ARIB).
-fn extract_pes_payload(pes: &[u8]) -> Vec<u8> {
+pub(crate) fn extract_pes_payload(pes: &[u8]) -> Vec<u8> {
     // Fixed PES header: 3 (start_code+stream_id) + 2 (packet_length) + 1 (flags1) = 6 bytes minimum.
     // The optional header length is in byte 8 (index 8 from start, 0-based).
     // Total header = 9 + optional_header_length.
@@ -416,4 +416,112 @@ fn extract_pes_payload(pes: &[u8]) -> Vec<u8> {
         return vec![];
     }
     pes[header_total..].to_vec()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_pes_payload, parse_pts};
+
+    // ── parse_pts ──────────────────────────────────────────────────────────────
+    //
+    // PTS encoding (MPEG-2 13818-1):
+    //   byte[0]: [4-bit tag] [pts[32:30]] [marker=1]
+    //   byte[1]: [pts[29:22]]
+    //   byte[2]: [pts[21:15]] [marker=1]
+    //   byte[3]: [pts[14: 7]]
+    //   byte[4]: [pts[ 6: 0]<<1] [marker=1]
+    //
+    // Encoding a known PTS value of 0 (all PTS bits = 0):
+    //   byte[0] = 0x01 (tag=0, pts[32:30]=000, marker=1)
+    //   byte[1] = 0x00
+    //   byte[2] = 0x01 (pts[21:15]=0000000, marker=1)
+    //   byte[3] = 0x00
+    //   byte[4] = 0x01 (pts[6:0]=0000000, marker=1)
+
+    fn encode_pts(pts: u64) -> [u8; 5] {
+        [
+            (((pts >> 29) & 0x0E) | 0x01) as u8, // [bits32:30 in b3:b1] | marker
+            ((pts >> 22) & 0xFF) as u8,
+            ((((pts >> 14) & 0xFE) | 0x01)) as u8,
+            ((pts >> 7) & 0xFF) as u8,
+            (((pts & 0x7F) << 1) | 0x01) as u8,
+        ]
+    }
+
+    #[test]
+    fn parse_pts_zero() {
+        let bytes = encode_pts(0);
+        assert_eq!(parse_pts(&bytes), 0);
+    }
+
+    #[test]
+    fn parse_pts_known_value() {
+        // PTS = 90_000 (1 second at 90 kHz)
+        let pts: u64 = 90_000;
+        let bytes = encode_pts(pts);
+        assert_eq!(parse_pts(&bytes), pts);
+    }
+
+    #[test]
+    fn parse_pts_max_33bit() {
+        // Max 33-bit value = 2^33 - 1 = 8_589_934_591
+        let pts: u64 = (1 << 33) - 1;
+        let bytes = encode_pts(pts);
+        assert_eq!(parse_pts(&bytes), pts);
+    }
+
+    #[test]
+    fn parse_pts_typical_ts_value() {
+        // Typical first PTS around 1 hour into a 90kHz clock
+        let pts: u64 = 90_000 * 3600; // 324_000_000
+        let bytes = encode_pts(pts);
+        assert_eq!(parse_pts(&bytes), pts);
+    }
+
+    // ── extract_pes_payload ────────────────────────────────────────────────────
+
+    fn make_pes(opt_header_len: u8, payload: &[u8]) -> Vec<u8> {
+        // Minimal valid PES: 6 fixed bytes + 3 optional-header-prefix bytes + opt payload + payload
+        // Byte layout:
+        //   [0..3]  = start_code + stream_id  (3 bytes)
+        //   [3..5]  = packet_length (2 bytes, 0=unbounded)
+        //   [5]     = flags1
+        //   [6]     = flags2
+        //   [7]     = flags3 (unused here)
+        //   [8]     = optional_header_length
+        //   [9 .. 9+opt_header_len] = optional header padding
+        //   [9+opt_header_len ..]   = payload
+        let header_total = 9 + opt_header_len as usize;
+        let mut pes = vec![0u8; header_total];
+        pes[8] = opt_header_len;
+        pes.extend_from_slice(payload);
+        pes
+    }
+
+    #[test]
+    fn extract_pes_payload_basic() {
+        let payload = b"\x80\x01\x02\x03";
+        let pes = make_pes(0, payload);
+        assert_eq!(extract_pes_payload(&pes), payload);
+    }
+
+    #[test]
+    fn extract_pes_payload_with_optional_header() {
+        let payload = b"\xAA\xBB";
+        let pes = make_pes(5, payload);  // 5-byte optional header
+        assert_eq!(extract_pes_payload(&pes), payload);
+    }
+
+    #[test]
+    fn extract_pes_payload_too_short_returns_empty() {
+        // PES shorter than 9 bytes → empty
+        assert_eq!(extract_pes_payload(&[0u8; 8]), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn extract_pes_payload_header_fills_whole_pes_returns_empty() {
+        // opt_len causes header_total == pes.len() → empty payload
+        let pes = vec![0u8; 9]; // opt_len=0 → header_total=9 == len → empty
+        assert_eq!(extract_pes_payload(&pes), Vec::<u8>::new());
+    }
 }

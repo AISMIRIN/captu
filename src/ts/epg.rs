@@ -375,6 +375,142 @@ fn fill_series_episode(mut epg: EpgInfo) -> EpgInfo {
     epg
 }
 
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_mjd_bcd, extract_series_episode, strip_broadcast_flags};
+    use chrono::Timelike;
+
+    // ── strip_broadcast_flags ─────────────────────────────────────────────────
+
+    #[test]
+    fn strip_flags_none() {
+        assert_eq!(strip_broadcast_flags("普通のタイトル"), "普通のタイトル");
+    }
+
+    #[test]
+    fn strip_flags_single() {
+        assert_eq!(strip_broadcast_flags("タイトル[字]"), "タイトル");
+    }
+
+    #[test]
+    fn strip_flags_multiple() {
+        assert_eq!(strip_broadcast_flags("タイトル[字][デ][SS]"), "タイトル");
+    }
+
+    #[test]
+    fn strip_flags_with_spaces() {
+        assert_eq!(strip_broadcast_flags("タイトル [字] "), "タイトル");
+    }
+
+    #[test]
+    fn strip_flags_does_not_strip_mid_bracket() {
+        // Bracket in the middle of the title must not be stripped
+        let s = "[special] タイトル";
+        assert_eq!(strip_broadcast_flags(s), s.trim());
+    }
+
+    // ── extract_series_episode ────────────────────────────────────────────────
+
+    #[test]
+    fn no_episode_returns_full_title_as_series() {
+        let (series, ep, sub) = extract_series_episode("アニメタイトル");
+        assert_eq!(series, "アニメタイトル");
+        assert_eq!(ep, None);
+        assert_eq!(sub, None);
+    }
+
+    #[test]
+    fn hash_ascii_episode() {
+        let (series, ep, sub) = extract_series_episode("シリーズ名 #3 エピソードタイトル");
+        assert_eq!(series, "シリーズ名");
+        assert_eq!(ep, Some(3));
+        assert_eq!(sub, Some("エピソードタイトル".to_string()));
+    }
+
+    #[test]
+    fn hash_fullwidth_episode() {
+        // ＃ is U+FF03 (fullwidth number sign)
+        let (series, ep, sub) = extract_series_episode("シリーズ名＃12サブタイトル");
+        assert_eq!(series, "シリーズ名");
+        assert_eq!(ep, Some(12));
+        assert_eq!(sub, Some("サブタイトル".to_string()));
+    }
+
+    #[test]
+    fn dai_wa_episode() {
+        let (series, ep, sub) = extract_series_episode("名探偵 第3話 黒の章");
+        assert_eq!(series, "名探偵");
+        assert_eq!(ep, Some(3));
+        assert_eq!(sub, Some("黒の章".to_string()));
+    }
+
+    #[test]
+    fn dai_wa_no_sub() {
+        let (series, ep, sub) = extract_series_episode("アニメ第5話");
+        assert_eq!(series, "アニメ");
+        assert_eq!(ep, Some(5));
+        assert_eq!(sub, None);
+    }
+
+    #[test]
+    fn episode_with_broadcast_flags_stripped() {
+        let (series, ep, _sub) = extract_series_episode("シリーズ #7 タイトル[字][デ]");
+        assert_eq!(series, "シリーズ");
+        assert_eq!(ep, Some(7));
+    }
+
+    #[test]
+    fn no_episode_space_split() {
+        // No episode token → split at first space: first word = series
+        let (series, ep, sub) = extract_series_episode("番組名 特別編");
+        assert_eq!(series, "番組名");
+        assert_eq!(ep, None);
+        assert_eq!(sub, Some("特別編".to_string()));
+    }
+
+    // ── decode_mjd_bcd ────────────────────────────────────────────────────────
+
+    #[test]
+    fn decode_mjd_bcd_known_date() {
+        // MJD 51544 = 2000-01-01 (verified: (2000-1900)*365.25 = 36524.0, 36524+15019+1=51544)
+        // Actually let's use the standard: MJD of 2000-01-01 = 51544
+        // BCD time: 12:00:00
+        let data: [u8; 5] = [
+            (51544u16 >> 8) as u8,  // MJD high byte
+            (51544u16 & 0xFF) as u8, // MJD low byte
+            0x12, // BCD 12
+            0x00, // BCD 00
+            0x00, // BCD 00
+        ];
+        let dt = decode_mjd_bcd(&data).expect("should decode");
+        assert_eq!(dt.date_naive().to_string(), "2000-01-01");
+        // Time is stored in JST (UTC+9), stored internally as UTC-9 from JST
+        // The function interprets time as JST so the naive UTC part is -9h
+        assert_eq!(dt.naive_local().time().hour(), 12);
+    }
+
+    #[test]
+    fn decode_mjd_bcd_too_short() {
+        assert!(decode_mjd_bcd(&[0x00, 0x01, 0x12]).is_none());
+    }
+
+    #[test]
+    fn decode_mjd_bcd_invalid_marker() {
+        // MJD = 0xFFFF is the "undefined" marker
+        let data: [u8; 5] = [0xFF, 0xFF, 0x00, 0x00, 0x00];
+        assert!(decode_mjd_bcd(&data).is_none());
+    }
+
+    #[test]
+    fn decode_mjd_bcd_invalid_bcd_byte() {
+        // Hour byte 0x9A → lo nibble=A > 9 → invalid BCD
+        let data: [u8; 5] = [0xC8, 0x00, 0x9A, 0x00, 0x00];
+        assert!(decode_mjd_bcd(&data).is_none());
+    }
+}
+
 // ── Public entry point ────────────────────────────────────────────────────────
 
 /// Extract EPG info from the TS file.

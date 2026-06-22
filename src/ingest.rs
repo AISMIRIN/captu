@@ -332,13 +332,12 @@ pub async fn delete_ts_file(pool: &SqlitePool, ts_file_id: i64, cache_dir: &Path
         .await?;
 
     // Remove cache subtree for this TS (subtitle PNGs + contact-sheet JPEGs).
-    let stem = Path::new(&path_str)
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let cache_path = cache_dir.join(&stem);
-    if cache_path.exists() {
-        std::fs::remove_dir_all(&cache_path)?;
+    // cache_subtree returns None when path_str has no file stem, preventing
+    // remove_dir_all from targeting the cache root.
+    if let Some(cache_path) = cache_subtree(cache_dir, &path_str) {
+        if cache_path.exists() {
+            std::fs::remove_dir_all(&cache_path)?;
+        }
     }
 
     sqlx::query("DELETE FROM ts_files WHERE id = ?")
@@ -458,13 +457,10 @@ pub async fn reset_ts_file(
     .await?;
 
     // Remove cached subtitle / thumbnail files for this TS.
-    let stem = Path::new(&path_str)
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let cache_path = cache_dir.join(&stem);
-    if cache_path.exists() {
-        std::fs::remove_dir_all(&cache_path)?;
+    if let Some(cache_path) = cache_subtree(cache_dir, &path_str) {
+        if cache_path.exists() {
+            std::fs::remove_dir_all(&cache_path)?;
+        }
     }
 
     tracing::info!("reset: ts_file id={} ({})", ts_file_id, path_str);
@@ -495,4 +491,85 @@ pub async fn reset_program(
 fn normalize_title(title: &str) -> String {
     // NFKC normalization: full-width ASCII → half-width, compatibility equivalents unified
     title.nfkc().collect::<String>().to_lowercase()
+}
+
+/// Resolve the per-TS cache subdirectory from the stored path string.
+///
+/// Returns `None` when the path has no file stem (e.g. dotfiles, directory paths)
+/// to prevent `remove_dir_all` from targeting the cache root.
+fn cache_subtree(cache_dir: &Path, ts_path_str: &str) -> Option<PathBuf> {
+    let stem = Path::new(ts_path_str).file_stem()?;
+    let stem_str = stem.to_string_lossy();
+    if stem_str.is_empty() {
+        return None;
+    }
+    Some(cache_dir.join(stem_str.as_ref()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cache_subtree, normalize_title};
+    use std::path::Path;
+
+    // ── normalize_title ────────────────────────────────────────────────────────
+
+    #[test]
+    fn normalize_title_fullwidth_to_halfwidth() {
+        // Full-width ASCII digits/letters should become half-width
+        assert_eq!(normalize_title("ＡＢＣ１２３"), "abc123");
+    }
+
+    #[test]
+    fn normalize_title_lowercase() {
+        assert_eq!(normalize_title("ABC"), "abc");
+    }
+
+    #[test]
+    fn normalize_title_mixed() {
+        // NFKC converts both full-width letters and ideographic space (U+3000) to half-width
+        assert_eq!(normalize_title("ＳＨＩＲＯ　the hero"), "shiro the hero");
+    }
+
+    #[test]
+    fn normalize_title_idempotent() {
+        let s = "アニメ abc 123";
+        assert_eq!(normalize_title(&normalize_title(s)), normalize_title(s));
+    }
+
+    #[test]
+    fn normalize_title_empty() {
+        assert_eq!(normalize_title(""), "");
+    }
+
+    // ── cache_subtree ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn cache_subtree_normal_path() {
+        let cache = Path::new("/cache");
+        let result = cache_subtree(cache, "/nas/video/ep01.ts");
+        assert_eq!(result, Some(Path::new("/cache/ep01").to_path_buf()));
+    }
+
+    #[test]
+    fn cache_subtree_no_extension() {
+        let cache = Path::new("/cache");
+        let result = cache_subtree(cache, "/nas/video/ep01");
+        assert_eq!(result, Some(Path::new("/cache/ep01").to_path_buf()));
+    }
+
+    #[test]
+    fn cache_subtree_no_stem_returns_none() {
+        // Root path "/" has no file component at all → file_stem() = None → returns None
+        let cache = Path::new("/cache");
+        let result = cache_subtree(cache, "/");
+        assert!(result.is_none(), "root-only path must return None");
+    }
+
+    #[test]
+    fn cache_subtree_never_returns_cache_root() {
+        // Empty string has no stem → must not return the cache dir itself
+        let cache = Path::new("/cache");
+        let result = cache_subtree(cache, "");
+        assert!(result.is_none());
+    }
 }

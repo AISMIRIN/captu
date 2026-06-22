@@ -7,6 +7,36 @@ use anyhow::{bail, Result};
 use crate::config::Config;
 use crate::ts::subtitle;
 
+/// Compute the MJPEG stream frame indices for `count` evenly-spaced sample
+/// points within the caption window.
+///
+/// - `pts_start_ms` / `pts_end_ms`: caption PTS bounds in milliseconds.
+/// - `count`: number of thumbnails to generate.  Returns an empty vec when 0.
+/// - `fps`: frame rate of the intermediate MJPEG stream (e.g. 30000/1001).
+///
+/// Negative relative times are clamped to frame 0 (occurs only when
+/// `pts_start_ms` is very small).
+fn frame_indices(pts_start_ms: i64, pts_end_ms: i64, count: usize, fps: f64) -> Vec<u64> {
+    let pts_start_sec = pts_start_ms as f64 / 1000.0;
+    let pts_end_sec   = pts_end_ms   as f64 / 1000.0;
+    let pre_seek  = (pts_start_sec - 6.0).max(0.0);
+    let win_start = pts_start_sec + 1.5;
+    let win_end   = if pts_end_sec > win_start { pts_end_sec } else { win_start + 0.5 };
+
+    (0..count)
+        .map(|k| {
+            let t = if count <= 1 {
+                win_start
+            } else {
+                win_start + k as f64 * (win_end - win_start) / (count - 1) as f64
+            };
+            let rel = t - pre_seek;
+            // Clamp to 0 before cast: negative rel would silently saturate on cast.
+            (rel.max(0.0) * fps).round() as u64
+        })
+        .collect()
+}
+
 fn ts_stem(ts_path: &Path) -> String {
     ts_path
         .file_stem()
@@ -71,16 +101,7 @@ pub fn ensure_thumbnails(
 
     // Frame indices in the MJPEG stream (terrestrial = 29.97 fps = 30000/1001).
     let fps = 30_000.0_f64 / 1001.0;
-    let frame_nums: Vec<u64> = (0..count)
-        .map(|k| {
-            let t = if count <= 1 {
-                win_start
-            } else {
-                win_start + k as f64 * (win_end - win_start) / (count - 1) as f64
-            };
-            ((t - pre_seek) * fps).round() as u64
-        })
-        .collect();
+    let frame_nums = frame_indices(pts_start_ms, pts_end_ms, count, fps);
 
     let w = cfg.capture.width;
     let h = cfg.capture.height;
@@ -201,4 +222,89 @@ pub fn ensure_thumbnails(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{frame_indices, thumb_path, ts_stem};
+    use std::path::Path;
+
+    const FPS: f64 = 30_000.0 / 1001.0;
+
+    // ── thumb_path ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn thumb_path_format() {
+        let p = thumb_path(Path::new("/cache"), "ep01", 42, 3);
+        assert_eq!(p, Path::new("/cache/ep01/thumbs/42_03.jpg"));
+    }
+
+    #[test]
+    fn thumb_path_zero_padded_n() {
+        // n is zero-padded to 2 digits
+        let p = thumb_path(Path::new("/cache"), "ep01", 1, 0);
+        assert_eq!(p, Path::new("/cache/ep01/thumbs/1_00.jpg"));
+    }
+
+    // ── ts_stem ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn ts_stem_normal() {
+        assert_eq!(ts_stem(Path::new("/nas/video/ep01.ts")), "ep01");
+    }
+
+    #[test]
+    fn ts_stem_no_extension() {
+        assert_eq!(ts_stem(Path::new("/nas/video/ep01")), "ep01");
+    }
+
+    #[test]
+    fn ts_stem_no_file_component_fallback() {
+        // An empty path has no file_stem → falls back to "unknown"
+        assert_eq!(ts_stem(Path::new("")), "unknown");
+    }
+
+    // ── frame_indices ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn frame_indices_empty_when_count_zero() {
+        assert!(frame_indices(10_000, 15_000, 0, FPS).is_empty());
+    }
+
+    #[test]
+    fn frame_indices_count_one() {
+        let frames = frame_indices(10_000, 15_000, 1, FPS);
+        assert_eq!(frames.len(), 1);
+    }
+
+    #[test]
+    fn frame_indices_count_three_sorted() {
+        let frames = frame_indices(10_000, 20_000, 3, FPS);
+        assert_eq!(frames.len(), 3);
+        // Frames should be non-decreasing (even sample spacing)
+        assert!(frames[0] <= frames[1] && frames[1] <= frames[2]);
+    }
+
+    #[test]
+    fn frame_indices_first_and_last_differ_for_wide_window() {
+        // With a 5-second window and 3 frames, first and last must differ.
+        let frames = frame_indices(10_000, 15_000, 3, FPS);
+        assert!(frames[0] < frames[2], "first and last frames should differ");
+    }
+
+    #[test]
+    fn frame_indices_negative_pts_clamps_to_zero() {
+        // Very negative PTS → relative time is negative → frame index must be 0, not panic.
+        let frames = frame_indices(-10_000, -5_000, 3, FPS);
+        for f in &frames {
+            assert_eq!(*f, 0, "frame index must clamp to 0 for negative relative time");
+        }
+    }
+
+    #[test]
+    fn frame_indices_zero_pts() {
+        // pts_start=0: pre_seek clamped to 0, win_start=1.5s → positive relative time
+        let frames = frame_indices(0, 5_000, 3, FPS);
+        assert!(frames[0] > 0);
+    }
 }
