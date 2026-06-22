@@ -90,6 +90,9 @@ impl Decoder {
             )
         };
         if ok {
+            // Keep full-width ー (U+30FC) even in MSZ mode; default is true which
+            // replaces it with half-width ｰ (U+FF70).
+            unsafe { aribcc_decoder_set_replace_msz_fullwidth_japanese(ptr, false) };
             Some(Self { ptr })
         } else {
             unsafe { aribcc_decoder_free(ptr) };
