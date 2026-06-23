@@ -33,7 +33,7 @@ pub struct Caption {
 /// Composite `images` from libaribcaption onto a transparent `w × h` RGBA canvas
 /// and return the flat buffer.
 pub(crate) fn composite_rgba(
-    images: &[aribcaption_sys::RenderedImage],
+    images: &[aribcaption::RenderedImage],
     w: usize,
     h: usize,
 ) -> Vec<u8> {
@@ -179,10 +179,12 @@ pub fn extract_captions(
     pes::write_pes_blob(&blob_path, &pes_list)?;
 
     // Decode text + timestamps for DB (no rendering).
-    let ctx = aribcaption_sys::Context::new()
+    let ctx = aribcaption::Context::new()
         .ok_or_else(|| anyhow::anyhow!("aribcc_context_alloc failed"))?;
-    let mut decoder = aribcaption_sys::Decoder::new(&ctx)
+    let mut decoder = aribcaption::Decoder::new(&ctx)
         .ok_or_else(|| anyhow::anyhow!("aribcc_decoder init failed"))?;
+    // Preserve full-width ー (U+30FC) in MSZ mode for correct DB text storage.
+    decoder.set_replace_msz_fullwidth_japanese(false);
 
     struct RawCaption {
         pts_ms: i64,
@@ -286,11 +288,13 @@ pub fn ensure_caption_png(
     // Replay full PES sequence through decoder + renderer.
     // This is fast (memory-only, μs-range per packet) and ensures the renderer
     // has the correct accumulated state (DRCS, graphic sets, management data).
-    let ctx = aribcaption_sys::Context::new()
+    let ctx = aribcaption::Context::new()
         .ok_or_else(|| anyhow::anyhow!("aribcc_context_alloc failed"))?;
-    let mut decoder = aribcaption_sys::Decoder::new(&ctx)
+    let mut decoder = aribcaption::Decoder::new(&ctx)
         .ok_or_else(|| anyhow::anyhow!("aribcc_decoder init failed"))?;
-    let mut renderer = aribcaption_sys::Renderer::new(&ctx, cfg.width as i32, cfg.height as i32)
+    // Preserve full-width ー (U+30FC) in MSZ mode for correct subtitle rendering.
+    decoder.set_replace_msz_fullwidth_japanese(false);
+    let mut renderer = aribcaption::Renderer::new(&ctx, cfg.width as i32, cfg.height as i32)
         .ok_or_else(|| anyhow::anyhow!("aribcc_renderer init failed"))?;
 
     for pes_pkt in &pes_list {

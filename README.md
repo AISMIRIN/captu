@@ -35,17 +35,17 @@ captu/
 │       ├── extract.rs    # 診断CLI: TSから字幕/EPGをダンプ
 │       └── ingest_cli.rs # 本番CLI: スキャン・再取り込み
 │
-├── crates/aribcaption-sys/  # libaribcaptionのFFIラッパー (ワークスペースメンバー)
-│   └── vendor/libaribcaption/  # git submodule
+├── crates/
+│   ├── aribcaption-sys/     # libaribcaption raw FFI bindings (bindgen)
+│   │   └── vendor/libaribcaption/  # git submodule
+│   └── aribcaption/         # safe Rust wrappers (Context/Decoder/Renderer)
 │
 ├── templates/         # askamaテンプレート
 ├── static/            # app.js (Web Share / Clipboard API)
 ├── assets/fonts/      # ARIB字幕用 Rounded M+ フォント
 ├── docs/spec.md       # 設計仕様
 ├── CLAUDE.md          # 開発ガイド (モジュール構成・技術規約)
-├── Dockerfile         # 本番ビルド
-├── Dockerfile.dev     # 開発用
-├── Dockerfile.ffmpeg  # ffmpegソースビルド (--enable-libaribcaption)
+├── Dockerfile         # マルチターゲット (builder-base / builder / dev / runtime)
 └── compose.yaml
 ```
 
@@ -64,15 +64,15 @@ git submodule update --init
 
 ```bash
 # 開発ビルド (root所有ファイル回避、NAS不要で基本動作確認可)
+# 初回は Dockerfile の dev ターゲットを自動ビルドする
 scripts/dev.sh build
 scripts/dev.sh run --bin extract -- /mnt/nas/video/sample.ts
 
 # NASマウントを使う場合
 CAPTU_NAS_HOST=/mnt/your/recordings scripts/dev.sh run --bin ingest_cli -- --scan /mnt/nas/video
 
-# 本番
+# 本番 (runtime ターゲット — stock ffmpeg + aribcaption-sys static link)
 cp config.toml.example config.toml  # 編集して録画ディレクトリ等を設定
-# compose.yaml の /path/to/recordings をホストパスに変更
 docker compose up --build -d
 ```
 

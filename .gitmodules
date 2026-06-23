@@ -1,3 +1,3 @@
-[submodule "third_party/libaribcaption"]
+[submodule "crates/aribcaption-sys/vendor/libaribcaption"]
 	path = crates/aribcaption-sys/vendor/libaribcaption
 	url = https://github.com/xqq/libaribcaption

@@ -1,0 +1,8 @@
+[package]
+name = "aribcaption"
+version = "0.1.0"
+edition = "2021"
+description = "Safe Rust wrappers for libaribcaption (ARIB STD-B24 caption decoder/renderer)"
+
+[dependencies]
+aribcaption-sys = { path = "../aribcaption-sys" }

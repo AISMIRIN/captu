@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/aribcaption-sys"]
+members = ["crates/aribcaption-sys", "crates/aribcaption"]
 resolver = "2"
 
 [package]
@@ -48,7 +48,7 @@ async-trait = "0.1"
 unicode-normalization = "0.1"
 
 # ARIB subtitle rendering (PES demux + libaribcaption FFI)
-aribcaption-sys = { path = "crates/aribcaption-sys" }
+aribcaption = { path = "crates/aribcaption" }
 
 # Utilities
 glob = "0.3"

@@ -13,21 +13,14 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-FFMPEG_IMAGE="captu-ffmpeg:latest"
 DEV_IMAGE="captu-dev:latest"
 NAS_HOST="${CAPTU_NAS_HOST:-./ts}"  # override: CAPTU_NAS_HOST=/mnt/your/recordings scripts/dev.sh ...
 NAS_CONTAINER="/mnt/nas/video"
 
-# Build the custom ffmpeg image (with libaribcaption) if it is missing.
-if ! docker image inspect "$FFMPEG_IMAGE" >/dev/null 2>&1; then
-    echo "[dev.sh] building $FFMPEG_IMAGE from Dockerfile.ffmpeg ..."
-    docker build -t "$FFMPEG_IMAGE" -f Dockerfile.ffmpeg .
-fi
-
 # Build the dev image if it is missing.
 if ! docker image inspect "$DEV_IMAGE" >/dev/null 2>&1; then
-    echo "[dev.sh] building $DEV_IMAGE from Dockerfile.dev ..."
-    docker build -t "$DEV_IMAGE" -f Dockerfile.dev .
+    echo "[dev.sh] building $DEV_IMAGE from Dockerfile (target: dev) ..."
+    docker build -t "$DEV_IMAGE" --target dev -f Dockerfile .
 fi
 
 # Allocate a tty only when stdout is one, so this also works in CI/non-interactive.

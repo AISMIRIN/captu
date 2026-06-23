@@ -14,13 +14,13 @@ src/
 ├── db.rs            # SQLiteスキーマ・接続プール
 ├── ingest.rs        # TSスキャン・取り込みオーケストレーション
 ├── ts/
-│   ├── b24.rs       # ARIB STD-B24テキストコーデック (decode_arib_b24)
+│   ├── b24.rs       # ARIB STD-B24テキストコーデック (decode_arib_b24) — EPG専用pure-Rust
 │   ├── epg.rs       # EIT/EPGパーサ → EpgInfo
 │   ├── pes.rs       # ARIB字幕PESデマクサ (find_caption_pid, demux_caption_pes)
-│   └── subtitle.rs  # libaribcaption FFI字幕抽出・on-demand PNG描画
+│   └── subtitle.rs  # aribcaption FFI字幕抽出・on-demand PNG描画
 │                    #   Caption { pts_start_ms, pts_end_ms, text }
 ├── media/
-│   └── capture.rs   # ffmpeg 単一パスサムネ生成
+│   └── capture.rs   # ffmpeg 単一パスサムネ生成 (stock ffmpeg)
 │                    #   scale → select → 字幕PNGオーバーレイ → JPEG (1コマンド)
 ├── routes/
 │   ├── search.rs    # GET /, GET /search
@@ -30,6 +30,11 @@ src/
 └── bin/
     ├── extract.rs    # 診断CLI: TSから字幕/EPGをダンプ
     └── ingest_cli.rs # 本番CLI: スキャン・再取り込み
+
+crates/
+├── aribcaption-sys/ # libaribcaption raw FFI bindings (bindgen + vendor submodule)
+└── aribcaption/     # safe wrappers: Context / Decoder / Renderer / RenderedImage
+                     # Decoder::set_replace_msz_fullwidth_japanese でcaptu固有設定を制御
 ```
 
 ## キャッシュ構成

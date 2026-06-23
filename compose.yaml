@@ -1,6 +1,8 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      target: runtime
     user: "1000:1000"
     ports:
       - "8000:8000"

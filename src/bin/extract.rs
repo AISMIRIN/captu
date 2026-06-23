@@ -58,8 +58,10 @@ fn main() {
             let pes_list = captu::ts::pes::demux_caption_pes(ts_path, pid);
             println!("PES packets: {}", pes_list.len());
 
-            let ctx = aribcaption_sys::Context::new().expect("context");
-            let mut decoder = aribcaption_sys::Decoder::new(&ctx).expect("decoder");
+            let ctx = aribcaption::Context::new().expect("context");
+            let mut decoder = aribcaption::Decoder::new(&ctx).expect("decoder");
+            // Preserve full-width ー (U+30FC) in MSZ mode, matching ingest behavior.
+            decoder.set_replace_msz_fullwidth_japanese(false);
 
             let mut total = 0usize;
             for pes in &pes_list {

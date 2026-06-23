@@ -52,6 +52,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
+name = "aribcaption"
+version = "0.1.0"
+dependencies = [
+ "aribcaption-sys",
+]
+
+[[package]]
 name = "aribcaption-sys"
 version = "0.1.0"
 dependencies = [
@@ -316,7 +323,7 @@ name = "captu"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "aribcaption-sys",
+ "aribcaption",
  "askama",
  "askama_axum",
  "async-trait",
