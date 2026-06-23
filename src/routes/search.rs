@@ -60,14 +60,14 @@ pub struct ProgramItem {
 }
 
 #[derive(Template)]
-#[template(path = "index.html")]
+#[template(path = "pages/index.html")]
 pub struct IndexTemplate {
     pub query: String,
     pub programs: Vec<ProgramItem>,
 }
 
 #[derive(Template)]
-#[template(path = "search_results.html")]
+#[template(path = "fragments/search_results.html")]
 pub struct SearchResultsTemplate {
     pub results: Vec<SearchResult>,
     /// Current page (0-based).

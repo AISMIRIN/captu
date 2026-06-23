@@ -26,14 +26,14 @@ pub struct TagForm {
 }
 
 #[derive(Template)]
-#[template(path = "tags_fragment.html")]
+#[template(path = "fragments/tags.html")]
 pub struct TagsFragment {
     pub caption_id: i64,
     pub tags: Vec<String>,
 }
 
 #[derive(Template)]
-#[template(path = "tag_options.html")]
+#[template(path = "fragments/tag_options.html")]
 pub struct TagOptionsTemplate {
     pub tags: Vec<String>,
 }

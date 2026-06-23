@@ -2,10 +2,18 @@
 
 let selectedFrame = 0;
 
-// Initialize the contact sheet with the previously selected frame (or middle frame).
+// Caption ID read from #contact-root[data-caption-id] on DOMContentLoaded.
+let _captionId = null;
+
+// Initialize the contact sheet: read context from data attributes, select initial frame.
 document.addEventListener('DOMContentLoaded', () => {
+    const root = document.getElementById('contact-root');
+    if (root) {
+        const parsed = parseInt(root.dataset.captionId, 10);
+        _captionId = isNaN(parsed) ? null : parsed;
+    }
     if (document.querySelector('.thumb-frame')) {
-        var initial = (typeof window.initialFrame !== 'undefined') ? window.initialFrame : 0;
+        const initial = root ? (parseInt(root.dataset.initialFrame, 10) || 0) : 0;
         selectFrame(initial);
     }
 });
@@ -21,13 +29,13 @@ function selectFrame(n) {
 
     // Update enlarged preview above the thumbnail strip.
     var enlarged = document.getElementById('enlarged');
-    if (enlarged && window.captionId != null) {
-        enlarged.src = '/full/' + window.captionId + '/' + n;
+    if (enlarged && _captionId != null) {
+        enlarged.src = '/full/' + _captionId + '/' + n;
     }
 
     // Persist to server so search results show the chosen frame as preview.
-    if (window.captionId != null) {
-        fetch('/select/' + window.captionId + '/' + n, { method: 'POST' }).catch(() => {});
+    if (_captionId != null) {
+        fetch('/select/' + _captionId + '/' + n, { method: 'POST' }).catch(() => {});
     }
 }
 

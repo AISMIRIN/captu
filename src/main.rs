@@ -68,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/caption/:id/tags/delete", post(routes::tags::delete_tag))
         .route("/ingest/status", get(routes::ingest::status))
         .route("/reingest/:id", post(routes::ingest::reingest))
-        .nest_service("/static", ServeDir::new("static"))
+        .nest_service("/static", ServeDir::new("ui/static"))
         .with_state(state);
 
     tracing::info!("listening on {}", addr);

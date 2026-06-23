@@ -40,8 +40,9 @@ captu/
 │   │   └── vendor/libaribcaption/  # git submodule
 │   └── aribcaption/         # safe Rust wrappers (Context/Decoder/Renderer)
 │
-├── templates/         # askamaテンプレート
-├── static/            # app.js (Web Share / Clipboard API)
+├── ui/
+│   ├── templates/     # askamaテンプレート (layouts/ / pages/ / fragments/)
+│   └── static/        # app.js (コンタクトシート), search.js (検索フィルタ)
 ├── assets/fonts/      # ARIB字幕用 Rounded M+ フォント
 ├── docs/spec.md       # 設計仕様
 ├── CLAUDE.md          # 開発ガイド (モジュール構成・技術規約)

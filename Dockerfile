@@ -17,14 +17,13 @@ WORKDIR /app
 # Copy only source files needed for the build.
 # config.toml is intentionally excluded (see .dockerignore) so that editing it
 # does not invalidate the cargo build cache layer.
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml Cargo.lock askama.toml ./
 COPY src/ ./src/
 # crates/ includes aribcaption-sys/vendor/libaribcaption (C source, submodule).
 # Do not drop crates/ from this list — it is needed at cmake build time.
 COPY crates/ ./crates/
 COPY migrations/ ./migrations/
-COPY templates/ ./templates/
-COPY static/ ./static/
+COPY ui/ ./ui/
 RUN cargo build --release --bin captu
 
 # ── Stage 3: Development shell ────────────────────────────────────────────────
@@ -65,8 +64,8 @@ COPY assets/fonts/99-captu-fonts.conf /etc/fonts/conf.d/
 RUN fc-cache -f
 
 COPY --from=builder /app/target/release/captu /usr/local/bin/captu
-# static/ is served relative to WORKDIR via ServeDir::new("static")
-COPY static/ /app/static/
+# ui/static/ is served relative to WORKDIR via ServeDir::new("ui/static")
+COPY ui/static/ /app/ui/static/
 
 WORKDIR /app
 ENV TZ=Asia/Tokyo

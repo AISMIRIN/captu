@@ -35,6 +35,16 @@ crates/
 ├── aribcaption-sys/ # libaribcaption raw FFI bindings (bindgen + vendor submodule)
 └── aribcaption/     # safe wrappers: Context / Decoder / Renderer / RenderedImage
                      # Decoder::set_replace_msz_fullwidth_japanese でcaptu固有設定を制御
+
+ui/
+├── templates/       # askamaテンプレート (askama.toml で root 宣言)
+│   ├── layouts/     # base.html
+│   ├── macros.html  # 共有マクロ
+│   ├── pages/       # index.html / contact.html / ingest_status.html
+│   └── fragments/   # episodes.html / search_results.html / tag_options.html / tags.html
+└── static/
+    ├── app.js       # フレーム選択・JPEG共有/コピー/ダウンロード (contact系)
+    └── search.js    # 検索フィルタ・タグチップ・セッション復元 (index系)
 ```
 
 ## キャッシュ構成

@@ -8,7 +8,7 @@ use sqlx::Row;
 use super::{display_title, AppState};
 
 #[derive(Template)]
-#[template(path = "contact.html")]
+#[template(path = "pages/contact.html")]
 pub struct ContactTemplate {
     pub caption_id: i64,
     pub ts_file_id: i64,

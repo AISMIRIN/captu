@@ -1,8 +1,8 @@
-{% extends "base.html" %}
+{% extends "layouts/base.html" %}
 {% import "macros.html" as m %}
 
 {% block body %}
-<div class="max-w-3xl mx-auto px-4 py-10">
+<div id="contact-root" data-caption-id="{{ caption_id }}" data-initial-frame="{{ selected_frame }}" class="max-w-3xl mx-auto px-4 py-10">
 
   {# Back link #}
   <a href="/" class="inline-flex items-center gap-1 text-sm text-gray-400 hover:text-gray-200 mb-6 transition-colors">
@@ -96,9 +96,4 @@
 
 </div>
 
-<script>
-// Expose caption context to app.js for frame selection persistence.
-window.captionId = {{ caption_id }};
-window.initialFrame = {{ selected_frame }};
-</script>
 {% endblock %}

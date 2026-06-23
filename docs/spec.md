@@ -46,16 +46,15 @@ captu/
 │       ├── episodes.rs            # GET /api/episodes
 │       └── ingest.rs              # GET /ingest/status (取り込み状況) , POST /reingest/:id
 │
-├── templates/                     # askamaテンプレート (コンパイル時検証)
-│   ├── base.html
-│   ├── index.html
-│   ├── contact.html
-│   ├── search_results.html
-│   ├── episodes_fragment.html
-│   └── ingest_status.html
-│
-├── static/
-│   └── app.js                     # フレーム選択・JPEG共有/コピー/ダウンロード
+├── ui/
+│   ├── templates/                 # askamaテンプレート (コンパイル時検証, askama.toml で root 宣言)
+│   │   ├── layouts/base.html
+│   │   ├── macros.html
+│   │   ├── pages/                 # index.html / contact.html / ingest_status.html
+│   │   └── fragments/             # episodes.html / search_results.html / tag_options.html / tags.html
+│   └── static/
+│       ├── app.js                 # フレーム選択・JPEG共有/コピー/ダウンロード
+│       └── search.js              # 検索フィルタ・タグチップ・セッション復元
 │
 ├── cache/                         # volume
 │   └── {ts_stem}/
@@ -376,7 +375,7 @@ q・フィルタ・filter が全て未指定の場合は空結果を返す。
 
 ---
 
-## フロントエンド (static/app.js, templates/)
+## フロントエンド (ui/static/, ui/templates/)
 
 **使用技術:** htmx + Tailwind CSS CDN（ビルド不要）
 

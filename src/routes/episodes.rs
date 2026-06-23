@@ -33,7 +33,7 @@ pub struct SubtitleItem {
 /// Fragment returned to htmx when the program selector changes.
 /// If all episodes have no episode_number, shows a subtitle selector; otherwise shows an episode list.
 #[derive(Template)]
-#[template(path = "episodes_fragment.html")]
+#[template(path = "fragments/episodes.html")]
 pub struct EpisodesTemplate {
     /// Some → episode selector; None → subtitle selector
     pub episodes: Option<Vec<EpisodeItem>>,

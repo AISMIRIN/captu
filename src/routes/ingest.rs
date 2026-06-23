@@ -17,7 +17,7 @@ pub struct ErrorEntry {
 }
 
 #[derive(Template)]
-#[template(path = "ingest_status.html")]
+#[template(path = "pages/ingest_status.html")]
 pub struct IngestStatusTemplate {
     pub pending: i64,
     pub ingesting: i64,
