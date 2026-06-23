@@ -85,6 +85,7 @@ docker compose up --build -d
 | `paths.nas_mount` | 録画ディレクトリのコンテナ内パス |
 | `paths.ts_glob` | TSファイルの検索パターン |
 | `capture.width/height` | サムネ解像度 (地上波: 1920×1080) |
+| `capture.thumb_width/height` | コンタクトシート解像度 |
 | `capture.thumb_count` | コンタクトシートのサムネ枚数 |
 | `ingest.concurrency` | 並列取り込みワーカー数 |
 
