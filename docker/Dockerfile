@@ -37,8 +37,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Rounded M+ 1m for ARIB subtitle rendering (same font as runtime image)
-COPY assets/fonts/rounded-mplus-1m-arib.ttf /usr/local/share/fonts/
-COPY assets/fonts/99-captu-fonts.conf /etc/fonts/conf.d/
+COPY docker/assets/fonts/rounded-mplus-1m-arib.ttf /usr/local/share/fonts/
+COPY docker/assets/fonts/99-captu-fonts.conf /etc/fonts/conf.d/
 RUN fc-cache -f
 
 WORKDIR /app
@@ -59,8 +59,8 @@ RUN apt-get update && apt-get install -y \
 # Rounded M+ 1m for ARIB subtitle burn-in via fontconfig + freetype.
 # fontconfig alias maps sans-serif → Rounded M+ 1m for ARIB so aribcaption-sys
 # renders with the ARIB-optimised rounded gothic typeface.
-COPY assets/fonts/rounded-mplus-1m-arib.ttf /usr/local/share/fonts/
-COPY assets/fonts/99-captu-fonts.conf /etc/fonts/conf.d/
+COPY docker/assets/fonts/rounded-mplus-1m-arib.ttf /usr/local/share/fonts/
+COPY docker/assets/fonts/99-captu-fonts.conf /etc/fonts/conf.d/
 RUN fc-cache -f
 
 COPY --from=builder /app/target/release/captu /usr/local/bin/captu

@@ -20,7 +20,7 @@ NAS_CONTAINER="/mnt/nas/video"
 # Build the dev image if it is missing.
 if ! docker image inspect "$DEV_IMAGE" >/dev/null 2>&1; then
     echo "[dev.sh] building $DEV_IMAGE from Dockerfile (target: dev) ..."
-    docker build -t "$DEV_IMAGE" --target dev -f Dockerfile .
+    docker build -t "$DEV_IMAGE" --target dev -f docker/Dockerfile .
 fi
 
 # Allocate a tty only when stdout is one, so this also works in CI/non-interactive.

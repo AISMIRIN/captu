@@ -42,10 +42,13 @@ captu/
 ├── ui/
 │   ├── templates/     # askamaテンプレート (layouts/ / pages/ / fragments/)
 │   └── static/        # app.js (コンタクトシート), search.js (検索フィルタ)
-├── assets/fonts/      # ARIB字幕用 Rounded M+ フォント
+│
+├── docker/
+│   ├── assets/fonts/      # ARIB字幕用 Rounded M+ フォント
+│   └── Dockerfile         # マルチターゲット (builder-base / builder / dev / runtime)
+│
 ├── docs/spec.md       # 設計仕様
 ├── CLAUDE.md          # 開発ガイド (モジュール構成・技術規約)
-├── Dockerfile         # マルチターゲット (builder-base / builder / dev / runtime)
 └── compose.yaml
 ```
 

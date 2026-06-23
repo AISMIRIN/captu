@@ -56,6 +56,10 @@ captu/
 │       ├── app.js                 # フレーム選択・JPEG共有/コピー/ダウンロード
 │       └── search.js              # 検索フィルタ・タグチップ・セッション復元
 │
+├── docker/
+│   ├── assets/fonts/              # ARIB字幕用 Rounded M+ フォント
+│   └── Dockerfile                 # マルチターゲット (builder-base / builder / dev / runtime
+│
 ├── cache/                         # volume
 │   └── {ts_stem}/
 │       ├── captions.pes           # PESブロブ (取り込み時に保存)
@@ -69,9 +73,6 @@ captu/
 │
 ├── docs/spec.md                   # 本ドキュメント
 ├── CLAUDE.md                      # 開発ガイド
-├── Dockerfile
-├── Dockerfile.dev
-├── Dockerfile.ffmpeg
 └── compose.yaml
 ```
 
