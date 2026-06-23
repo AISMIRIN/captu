@@ -22,7 +22,7 @@ function selectFrame(n) {
     // Update enlarged preview above the thumbnail strip.
     var enlarged = document.getElementById('enlarged');
     if (enlarged && window.captionId != null) {
-        enlarged.src = '/thumb/' + window.captionId + '/' + n;
+        enlarged.src = '/full/' + window.captionId + '/' + n;
     }
 
     // Persist to server so search results show the chosen frame as preview.
@@ -46,7 +46,7 @@ async function handleJpeg(captionId, frameN) {
     if (btn) btn.disabled = true;
 
     try {
-        const res = await fetch(`/thumb/${captionId}/${frameN}`);
+        const res = await fetch(`/full/${captionId}/${frameN}`);
         if (!res.ok) {
             showToast('取得に失敗しました');
             return;

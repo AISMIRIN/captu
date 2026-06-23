@@ -9,6 +9,11 @@ db_path = "/app/data/captions.db"
 
 [capture]
 thumb_count = 6        # contact-sheet frames per caption
+# Thumbnail dimensions for the contact-sheet grid and search preview (display-only)
+thumb_width = 640
+thumb_height = 360
+thumb_quality = 4      # ffmpeg -q:v for thumbnails (lower = better quality)
+# Full-resolution settings for download/share JPEG
 width = 1920           # output width in pixels (terrestrial 1440x1080 → 1920x1080)
 height = 1080          # output height in pixels
 jpeg_quality = 2       # ffmpeg -q:v value (2 = near-lossless; lower = better quality)

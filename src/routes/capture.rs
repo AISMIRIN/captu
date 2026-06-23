@@ -10,7 +10,7 @@ use axum::{
 use sqlx::Row;
 use tokio::sync::Mutex as AsyncMutex;
 
-use captu::media::capture;
+use captu::media::capture::{self};
 
 use super::AppState;
 
@@ -99,6 +99,47 @@ pub async fn select_frame(
             StatusCode::INTERNAL_SERVER_ERROR
         }
     }
+}
+
+/// GET /full/:id/:n  — serve a full-resolution (download) JPEG for a single frame.
+///
+/// Generates the frame on first access using the full `cfg.width × cfg.height`
+/// resolution and `cfg.jpeg_quality`.  Subsequent requests return the cached file.
+/// Uses the same per-caption lock as `thumb` to avoid duplicate ffmpeg runs.
+pub async fn full(
+    State(state): State<AppState>,
+    Path((id, n)): Path<(i64, u32)>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let (ts_path, pts_start, pts_end) = lookup_caption(&state, id).await?;
+
+    let lock: Arc<AsyncMutex<()>> = {
+        let mut map = state.gen_locks.lock().unwrap();
+        map.entry(id)
+            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+            .clone()
+    };
+    let _guard = lock.lock().await;
+
+    let cfg = state.config.clone();
+    let ts_path_cl = ts_path.clone();
+    tokio::task::spawn_blocking(move || {
+        capture::ensure_full(&cfg, &ts_path_cl, id, pts_start, pts_end, n)
+    })
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .map_err(|e| {
+        tracing::error!("full gen failed {}/{}: {:#}", id, n, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let stem = ts_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let path =
+        capture::full_path(std::path::Path::new(&state.config.paths.cache_dir), &stem, id, n);
+
+    serve_jpeg(path).await
 }
 
 // ------ helpers ------

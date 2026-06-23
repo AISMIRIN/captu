@@ -18,15 +18,28 @@ pub struct PathsConfig {
     pub db_path: String,
 }
 
+fn default_thumb_width() -> u32 { 640 }
+fn default_thumb_height() -> u32 { 360 }
+fn default_thumb_quality() -> u32 { 4 }
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct CaptureConfig {
     /// Number of contact-sheet thumbnails per caption.
     pub thumb_count: u32,
-    /// Output width in pixels (display aspect; terrestrial 1440x1080 is scaled to 1920x1080).
+    /// Thumbnail width for the contact-sheet grid / preview (smaller, display-only).
+    #[serde(default = "default_thumb_width")]
+    pub thumb_width: u32,
+    /// Thumbnail height for the contact-sheet grid / preview.
+    #[serde(default = "default_thumb_height")]
+    pub thumb_height: u32,
+    /// JPEG quality for thumbnails passed to ffmpeg -q:v (lower = better).
+    #[serde(default = "default_thumb_quality")]
+    pub thumb_quality: u32,
+    /// Full-resolution output width (used for download/share JPEG).
     pub width: u32,
-    /// Output height in pixels.
+    /// Full-resolution output height.
     pub height: u32,
-    /// JPEG quality passed to ffmpeg -q:v (2 = near-lossless, lower = better).
+    /// JPEG quality for full-resolution download passed to ffmpeg -q:v.
     pub jpeg_quality: u32,
 }
 
@@ -95,6 +108,9 @@ impl Config {
             },
             capture: CaptureConfig {
                 thumb_count: 6,
+                thumb_width: 640,
+                thumb_height: 360,
+                thumb_quality: 4,
                 width: 1920,
                 height: 1080,
                 jpeg_quality: 2,

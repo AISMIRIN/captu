@@ -60,6 +60,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/search", get(routes::search::search))
         .route("/contact/:id", get(routes::contact::contact))
         .route("/thumb/:id/:n", get(routes::capture::thumb))
+        .route("/full/:id/:n", get(routes::capture::full))
         .route("/select/:id/:n", post(routes::capture::select_frame))
         .route("/api/episodes", get(routes::episodes::episodes))
         .route("/api/tags", get(routes::tags::tag_options))
