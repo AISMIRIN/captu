@@ -5,7 +5,7 @@ use axum::{
     body::Bytes,
     extract::{Path, State},
     http::{header, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
 };
 use sqlx::Row;
 use tokio::sync::Mutex as AsyncMutex;
@@ -140,6 +140,50 @@ pub async fn full(
         capture::full_path(std::path::Path::new(&state.config.paths.cache_dir), &stem, id, n);
 
     serve_jpeg(path).await
+}
+
+/// POST /recapture/:id  — clear the cached images for a single caption.
+///
+/// Deletes thumbs, full-resolution JPEGs and the subtitle PNG so the next
+/// /thumb or /full request regenerates them from the TS file.
+/// Uses the same per-caption lock as `thumb`/`full` to prevent races with
+/// in-flight generation.
+pub async fn recapture(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Response {
+    let (ts_path, _, _) = match lookup_caption(&state, id).await {
+        Ok(v) => v,
+        Err(s) => return s.into_response(),
+    };
+
+    let lock: Arc<AsyncMutex<()>> = {
+        let mut map = state.gen_locks.lock().unwrap();
+        map.entry(id)
+            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+            .clone()
+    };
+    let _guard = lock.lock().await;
+
+    let stem = ts_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let cache_dir = std::path::PathBuf::from(&state.config.paths.cache_dir);
+
+    match tokio::task::spawn_blocking(move || {
+        capture::clear_caption_cache(&cache_dir, &stem, id)
+    })
+    .await
+    {
+        Ok(Ok(())) => (StatusCode::OK, "ok").into_response(),
+        Ok(Err(e)) => {
+            tracing::error!("recapture clear_cache failed {}: {:#}", id, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "error").into_response()
+        }
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "error").into_response(),
+    }
 }
 
 // ------ helpers ------

@@ -467,6 +467,55 @@ pub async fn reset_ts_file(
     Ok(())
 }
 
+/// Delete all captions, tags, thumbnails and the cache subtree for a TS file
+/// but keep the ts_files row and its status/metadata intact.
+///
+/// Because status stays 'done', a later scan will not re-ingest the file.
+/// Use `reset_ts_file` if you want the file to be re-ingested on the next run.
+pub async fn clear_subtitles(
+    pool: &SqlitePool,
+    ts_file_id: i64,
+    cache_dir: &Path,
+) -> Result<()> {
+    let path_str: Option<String> =
+        sqlx::query_scalar("SELECT path FROM ts_files WHERE id = ?")
+            .bind(ts_file_id)
+            .fetch_optional(pool)
+            .await?;
+
+    let path_str = match path_str {
+        Some(p) => p,
+        None => {
+            tracing::warn!("clear_subtitles: id={} not found, skipping", ts_file_id);
+            return Ok(());
+        }
+    };
+
+    // tags has no ON DELETE CASCADE from captions, so delete before captions.
+    sqlx::query(
+        "DELETE FROM tags WHERE caption_id IN (SELECT id FROM captions WHERE ts_file_id = ?)",
+    )
+    .bind(ts_file_id)
+    .execute(pool)
+    .await?;
+
+    // captions_ad trigger removes rows from captions_fts; thumbnails cascade automatically.
+    sqlx::query("DELETE FROM captions WHERE ts_file_id = ?")
+        .bind(ts_file_id)
+        .execute(pool)
+        .await?;
+
+    // Remove cached subtitle PNGs and thumbnail JPEGs for this TS.
+    if let Some(cache_path) = cache_subtree(cache_dir, &path_str) {
+        if cache_path.exists() {
+            std::fs::remove_dir_all(&cache_path)?;
+        }
+    }
+
+    tracing::info!("clear_subtitles: ts_file id={} ({})", ts_file_id, path_str);
+    Ok(())
+}
+
 /// Reset all TS files belonging to a program.
 pub async fn reset_program(
     pool: &SqlitePool,

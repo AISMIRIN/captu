@@ -81,17 +81,25 @@
            bg-gray-700 text-white text-sm px-4 py-2 rounded-lg shadow-lg pointer-events-none"
   ></div>
 
-  {# Reingest #}
+  {# Management actions #}
   <div class="mt-6 pt-4 border-t border-gray-800">
-    <div id="reingest-result"></div>
-    <button
-      hx-post="/reingest/{{ ts_file_id }}"
-      hx-target="#reingest-result"
-      hx-swap="innerHTML"
-      class="text-xs text-gray-600 hover:text-gray-400 transition-colors"
-    >
-      再取り込み
-    </button>
+    <div id="reingest-result" class="text-xs text-gray-400 mb-2 min-h-[1rem]"></div>
+    <div class="flex items-center gap-4">
+      <button
+        onclick="recapture({{ caption_id }})"
+        class="text-xs text-gray-600 hover:text-gray-300 transition-colors"
+      >画像再作成</button>
+      <a
+        href="/ingest/file/{{ ts_file_id }}"
+        class="text-xs text-gray-600 hover:text-gray-300 transition-colors"
+      >情報確認</a>
+      <button
+        hx-post="/reingest/{{ ts_file_id }}"
+        hx-target="#reingest-result"
+        hx-swap="innerHTML"
+        class="text-xs text-gray-600 hover:text-yellow-400 transition-colors"
+      >取り込み直し</button>
+    </div>
   </div>
 
 </div>

@@ -67,7 +67,11 @@ async fn main() -> anyhow::Result<()> {
         .route("/caption/:id/tags", post(routes::tags::add_tag))
         .route("/caption/:id/tags/delete", post(routes::tags::delete_tag))
         .route("/ingest/status", get(routes::ingest::status))
+        .route("/ingest/files", get(routes::ingest::files))
+        .route("/ingest/file/:id", get(routes::ingest::file_detail))
+        .route("/ingest/clear/:id", post(routes::ingest::clear))
         .route("/reingest/:id", post(routes::ingest::reingest))
+        .route("/recapture/:id", post(routes::capture::recapture))
         .nest_service("/static", ServeDir::new("ui/static"))
         .with_state(state);
 

@@ -1,0 +1,89 @@
+{% extends "layouts/base.html" %}
+
+{% block body %}
+<div class="max-w-3xl mx-auto px-4 py-10">
+
+  <div class="flex items-center justify-between mb-8">
+    <h1 class="text-xl font-bold text-white">ファイル詳細</h1>
+    <a href="/ingest/files" class="text-sm text-gray-400 hover:text-gray-200 transition-colors">← 一覧へ戻る</a>
+  </div>
+
+  {# Status badge #}
+  <div class="mb-4">
+    {% if file.status == "done" %}
+    <span class="text-sm px-2 py-1 rounded bg-green-900 text-green-300">完了</span>
+    {% else if file.status == "error" %}
+    <span class="text-sm px-2 py-1 rounded bg-red-900 text-red-300">エラー</span>
+    {% else if file.status == "ingesting" %}
+    <span class="text-sm px-2 py-1 rounded bg-blue-900 text-blue-300">処理中</span>
+    {% else %}
+    <span class="text-sm px-2 py-1 rounded bg-gray-700 text-gray-400">待機</span>
+    {% endif %}
+  </div>
+
+  {# Metadata table #}
+  <div class="bg-gray-800 rounded-lg overflow-hidden mb-6">
+    <table class="w-full text-sm">
+      <tbody class="divide-y divide-gray-700">
+        <tr>
+          <td class="px-4 py-2.5 text-gray-500 w-32 shrink-0">ファイル名</td>
+          <td class="px-4 py-2.5 text-gray-200 font-mono break-all">{{ file.filename }}</td>
+        </tr>
+        <tr>
+          <td class="px-4 py-2.5 text-gray-500">パス</td>
+          <td class="px-4 py-2.5 text-gray-400 font-mono text-xs break-all">{{ file.path }}</td>
+        </tr>
+        {% if !file.display_title.is_empty() && file.display_title != file.filename %}
+        <tr>
+          <td class="px-4 py-2.5 text-gray-500">番組</td>
+          <td class="px-4 py-2.5 text-gray-200">{{ file.display_title }}</td>
+        </tr>
+        {% endif %}
+        {% if let Some(d) = file.air_date %}
+        <tr>
+          <td class="px-4 py-2.5 text-gray-500">放送日</td>
+          <td class="px-4 py-2.5 text-gray-200">{{ d }}</td>
+        </tr>
+        {% endif %}
+        {% if let Some(at) = file.ingested_at %}
+        <tr>
+          <td class="px-4 py-2.5 text-gray-500">取り込み日時</td>
+          <td class="px-4 py-2.5 text-gray-200 font-mono">{{ at }}</td>
+        </tr>
+        {% endif %}
+        <tr>
+          <td class="px-4 py-2.5 text-gray-500">字幕件数</td>
+          <td class="px-4 py-2.5 text-gray-200">{{ file.caption_count }} 件</td>
+        </tr>
+        {% if let Some(msg) = file.error_msg %}
+        <tr>
+          <td class="px-4 py-2.5 text-gray-500">エラー</td>
+          <td class="px-4 py-2.5 text-red-400 font-mono text-xs break-all">{{ msg }}</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Action result area #}
+  <div id="detail-result" class="text-sm text-gray-400 mb-4 min-h-[1.5rem]"></div>
+
+  {# Actions #}
+  <div class="flex gap-3">
+    <button
+      hx-post="/reingest/{{ file.id }}"
+      hx-target="#detail-result"
+      hx-swap="innerHTML"
+      class="px-4 py-2 rounded-lg bg-yellow-700 hover:bg-yellow-600 text-white text-sm font-medium transition-colors"
+    >取り込み直し</button>
+    <button
+      hx-post="/ingest/clear/{{ file.id }}"
+      hx-target="#detail-result"
+      hx-swap="innerHTML"
+      class="px-4 py-2 rounded-lg bg-red-800 hover:bg-red-700 text-white text-sm font-medium transition-colors"
+      onclick="return confirm('字幕情報とキャッシュ画像を削除します。よいですか？')"
+    >字幕を消す</button>
+  </div>
+
+</div>
+{% endblock %}

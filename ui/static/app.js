@@ -101,6 +101,41 @@ async function handleJpeg(captionId, frameN) {
     }
 }
 
+/**
+ * Clear cached images for a caption and force the browser to reload them.
+ *
+ * POSTs to /recapture/:id (server deletes thumbs/full/sub PNGs),
+ * then busts the browser cache by appending ?v=<timestamp> to every
+ * thumb and the enlarged preview so the next request re-generates them.
+ */
+async function recapture(captionId) {
+    showToast('画像を削除中...');
+    try {
+        const res = await fetch(`/recapture/${captionId}`, { method: 'POST' });
+        if (!res.ok) {
+            showToast('画像再作成に失敗しました');
+            return;
+        }
+
+        const v = `?v=${Date.now()}`;
+
+        // Reload enlarged preview.
+        const enlarged = document.getElementById('enlarged');
+        if (enlarged) {
+            enlarged.src = enlarged.src.split('?')[0] + v;
+        }
+
+        // Reload all thumbnail images in the contact-sheet grid.
+        document.querySelectorAll('#thumb-grid img').forEach(img => {
+            img.src = img.src.split('?')[0] + v;
+        });
+
+        showToast('画像を再作成しました');
+    } catch {
+        showToast('画像再作成に失敗しました');
+    }
+}
+
 /** Show a brief toast message that auto-dismisses after 2 seconds. */
 function showToast(msg) {
     const el = document.getElementById('toast');

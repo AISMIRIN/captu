@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Result};
+use glob;
 
 use crate::config::Config;
 use crate::ts::subtitle;
@@ -57,6 +58,39 @@ pub fn full_path(cache_dir: &Path, stem: &str, id: i64, n: u32) -> PathBuf {
         .join(stem)
         .join("full")
         .join(format!("{}_{:02}.jpg", id, n))
+}
+
+/// Remove cached thumbs/full JPEGs and the subtitle PNG for one caption,
+/// forcing regeneration on the next /thumb or /full request.
+///
+/// The `thumbnails` table row is intentionally left intact so the user's
+/// frame selection is preserved across the recapture.
+pub fn clear_caption_cache(cache_dir: &Path, stem: &str, id: i64) -> Result<()> {
+    // Remove thumbs/{id}_*.jpg
+    let thumb_pattern = cache_dir
+        .join(stem)
+        .join("thumbs")
+        .join(format!("{}_*.jpg", id));
+    for entry in glob::glob(thumb_pattern.to_str().unwrap_or(""))?.flatten() {
+        std::fs::remove_file(&entry)?;
+    }
+
+    // Remove full/{id}_*.jpg
+    let full_pattern = cache_dir
+        .join(stem)
+        .join("full")
+        .join(format!("{}_*.jpg", id));
+    for entry in glob::glob(full_pattern.to_str().unwrap_or(""))?.flatten() {
+        std::fs::remove_file(&entry)?;
+    }
+
+    // Remove sub/{id}.png
+    let sub_png = cache_dir.join(stem).join("sub").join(format!("{}.png", id));
+    if sub_png.exists() {
+        std::fs::remove_file(&sub_png)?;
+    }
+
+    Ok(())
 }
 
 // ── ffmpeg pipeline ────────────────────────────────────────────────────────

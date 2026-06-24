@@ -115,7 +115,17 @@ pub struct SearchParams {
 }
 
 pub async fn index(State(state): State<AppState>) -> Result<IndexTemplate, StatusCode> {
-    let rows = sqlx::query("SELECT id, title FROM programs ORDER BY title")
+    // Only include programs that have at least one caption, so that programs
+    // whose subtitles were cleared via "字幕を消す" don't appear in the selector.
+    let rows = sqlx::query(
+        "SELECT id, title FROM programs p \
+         WHERE EXISTS ( \
+             SELECT 1 FROM ts_files f \
+             JOIN captions c ON c.ts_file_id = f.id \
+             WHERE f.program_id = p.id \
+         ) \
+         ORDER BY title",
+    )
         .fetch_all(&state.pool)
         .await
         .map_err(|e| {

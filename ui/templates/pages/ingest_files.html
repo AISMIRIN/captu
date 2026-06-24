@@ -1,0 +1,147 @@
+{% extends "layouts/base.html" %}
+
+{% block body %}
+<div class="max-w-5xl mx-auto px-4 py-10">
+
+  <div class="flex items-center justify-between mb-8">
+    <h1 class="text-xl font-bold text-white">ファイル管理</h1>
+    <div class="flex items-center gap-4">
+      <a href="/ingest/status" class="text-sm text-gray-400 hover:text-gray-200 transition-colors">ingest 状況</a>
+      <a href="/" class="text-sm text-gray-400 hover:text-gray-200 transition-colors">← 検索へ戻る</a>
+    </div>
+  </div>
+
+  {# Search form — htmx swaps #files-results with the same div from the response #}
+  <form
+    hx-get="/ingest/files"
+    hx-target="#files-results"
+    hx-select="#files-results"
+    hx-swap="outerHTML"
+    hx-trigger="submit, change delay:300ms from:select"
+    class="flex gap-2 mb-6"
+  >
+    <input
+      type="text"
+      name="q"
+      value="{{ q }}"
+      placeholder="ファイル名で検索..."
+      class="flex-1 px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 text-sm focus:outline-none focus:border-blue-500"
+    >
+    <select
+      name="status"
+      class="px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 text-sm focus:outline-none focus:border-blue-500"
+    >
+      <option value="all" {% if status_filter == "all" %}selected{% endif %}>すべて</option>
+      <option value="done" {% if status_filter == "done" %}selected{% endif %}>完了</option>
+      <option value="error" {% if status_filter == "error" %}selected{% endif %}>エラー</option>
+      <option value="pending" {% if status_filter == "pending" %}selected{% endif %}>待機</option>
+      <option value="ingesting" {% if status_filter == "ingesting" %}selected{% endif %}>処理中</option>
+    </select>
+    <input type="hidden" name="page" value="0">
+    <button
+      type="submit"
+      class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+    >絞り込み</button>
+  </form>
+
+  {# Results container — swapped by htmx on search/page change #}
+  <div id="files-results">
+
+    <div class="text-sm text-gray-500 mb-3">{{ total }} 件</div>
+
+    {% if files.is_empty() %}
+    <div class="text-gray-500 text-sm py-8 text-center">該当なし</div>
+    {% else %}
+    <div class="space-y-2">
+      {% for f in files %}
+      <div class="bg-gray-800 rounded-lg px-4 py-3">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0 flex-1">
+            {# Status badge + filename #}
+            <div class="flex items-center gap-2 mb-1">
+              {% if f.status == "done" %}
+              <span class="text-xs px-1.5 py-0.5 rounded bg-green-900 text-green-300">完了</span>
+              {% else if f.status == "error" %}
+              <span class="text-xs px-1.5 py-0.5 rounded bg-red-900 text-red-300">エラー</span>
+              {% else if f.status == "ingesting" %}
+              <span class="text-xs px-1.5 py-0.5 rounded bg-blue-900 text-blue-300">処理中</span>
+              {% else %}
+              <span class="text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">待機</span>
+              {% endif %}
+              <span class="text-sm text-gray-300 font-mono truncate">{{ f.filename }}</span>
+            </div>
+            {# Program title / air date / caption count #}
+            <div class="flex items-center gap-3 text-xs text-gray-500">
+              {% if !f.display_title.is_empty() && f.display_title != f.filename %}
+              <span class="truncate">{{ f.display_title }}</span>
+              {% endif %}
+              {% if let Some(d) = f.air_date %}
+              <span>{{ d }}</span>
+              {% endif %}
+              <span>字幕 {{ f.caption_count }} 件</span>
+            </div>
+            {# Error message if any #}
+            {% if let Some(msg) = f.error_msg %}
+            <div class="text-xs text-red-400 mt-1 truncate">{{ msg }}</div>
+            {% endif %}
+          </div>
+          {# Action buttons #}
+          <div class="flex flex-col items-end gap-1 shrink-0">
+            <a
+              href="/ingest/file/{{ f.id }}"
+              class="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            >情報確認</a>
+            <button
+              hx-post="/reingest/{{ f.id }}"
+              hx-target="#row-result-{{ f.id }}"
+              hx-swap="innerHTML"
+              class="text-xs text-gray-500 hover:text-yellow-400 transition-colors"
+            >取り込み直し</button>
+            <button
+              hx-post="/ingest/clear/{{ f.id }}"
+              hx-target="#row-result-{{ f.id }}"
+              hx-swap="innerHTML"
+              class="text-xs text-gray-500 hover:text-red-400 transition-colors"
+            >字幕を消す</button>
+          </div>
+        </div>
+        {# Result message area for this row #}
+        <div id="row-result-{{ f.id }}" class="text-xs text-gray-400 mt-1 min-h-[1rem]"></div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {# Pagination #}
+    <div class="flex items-center justify-between mt-6">
+      {% if has_prev %}
+      <button
+        hx-get="/ingest/files?q={{ q|urlencode }}&status={{ status_filter }}&page={{ page - 1 }}"
+        hx-target="#files-results"
+        hx-select="#files-results"
+        hx-swap="outerHTML"
+        class="text-sm text-gray-400 hover:text-white transition-colors"
+      >← 前のページ</button>
+      {% else %}
+      <div></div>
+      {% endif %}
+
+      <span class="text-xs text-gray-600">ページ {{ page + 1 }}</span>
+
+      {% if has_next %}
+      <button
+        hx-get="/ingest/files?q={{ q|urlencode }}&status={{ status_filter }}&page={{ page + 1 }}"
+        hx-target="#files-results"
+        hx-select="#files-results"
+        hx-swap="outerHTML"
+        class="text-sm text-gray-400 hover:text-white transition-colors"
+      >次のページ →</button>
+      {% else %}
+      <div></div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </div>
+
+</div>
+{% endblock %}
