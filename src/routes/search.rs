@@ -49,7 +49,11 @@ where
         None => Ok(None),
         Some(v) => {
             let trimmed = v.trim().to_string();
-            if trimmed.is_empty() { Ok(None) } else { Ok(Some(trimmed)) }
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(trimmed))
+            }
         }
     }
 }
@@ -152,11 +156,7 @@ pub async fn search(
     Query(params): Query<SearchParams>,
 ) -> Result<SearchResultsTemplate, StatusCode> {
     let q = params.q.as_deref().unwrap_or("").trim().to_string();
-    let filter = params
-        .filter
-        .as_deref()
-        .unwrap_or("all")
-        .to_string();
+    let filter = params.filter.as_deref().unwrap_or("all").to_string();
     let page = params.page.unwrap_or(0).clamp(0, MAX_PAGE);
     let rep_frame = state.config.capture.thumb_count as i64 / 2;
 
@@ -189,13 +189,14 @@ pub async fn search(
         });
     }
 
-    let (results, total) =
-        run_search(&state, active_q, &params, &tag_list, &filter, page, rep_frame)
-            .await
-            .map_err(|e| {
-                tracing::error!("search error: {:#}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+    let (results, total) = run_search(
+        &state, active_q, &params, &tag_list, &filter, page, rep_frame,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("search error: {:#}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let (loaded, has_next, _) = page_window(page, total);
 
@@ -305,11 +306,7 @@ async fn run_search(
             SearchResult {
                 id: row.get("caption_id"),
                 text: row.get("text"),
-                time_str: format!(
-                    "{} – {}",
-                    super::fmt_ms(start_ms),
-                    super::fmt_ms(end_ms)
-                ),
+                time_str: format!("{} – {}", super::fmt_ms(start_ms), super::fmt_ms(end_ms)),
                 display_title: display_title(
                     &row.get::<String, _>("title"),
                     row.get("episode_number"),
@@ -326,9 +323,8 @@ async fn run_search(
     // Bulk-load tags for the current page of results (single query, no N+1).
     // IDs are i64 literals — no user input involved, so QueryBuilder with push_bind is safe.
     if !results.is_empty() {
-        let mut tq = QueryBuilder::<Sqlite>::new(
-            "SELECT caption_id, tag FROM tags WHERE caption_id IN (",
-        );
+        let mut tq =
+            QueryBuilder::<Sqlite>::new("SELECT caption_id, tag FROM tags WHERE caption_id IN (");
         let mut sep = tq.separated(", ");
         for r in &results {
             sep.push_bind(r.id);
@@ -383,7 +379,9 @@ fn push_search_where(
 
     if let Some(t) = bind_text {
         cond!(qb, n);
-        qb.push("c.text LIKE ").push_bind(t.to_owned()).push(" ESCAPE '\\'");
+        qb.push("c.text LIKE ")
+            .push_bind(t.to_owned())
+            .push(" ESCAPE '\\'");
     }
     if let Some(pid) = program_id {
         cond!(qb, n);
@@ -395,7 +393,9 @@ fn push_search_where(
     }
     if let Some(s) = bind_sub {
         cond!(qb, n);
-        qb.push("f.episode_title LIKE ").push_bind(s.to_owned()).push(" ESCAPE '\\'");
+        qb.push("f.episode_title LIKE ")
+            .push_bind(s.to_owned())
+            .push(" ESCAPE '\\'");
     }
     if let Some(d) = date_from {
         cond!(qb, n);

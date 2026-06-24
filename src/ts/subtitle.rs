@@ -32,11 +32,7 @@ pub struct Caption {
 
 /// Composite `images` from libaribcaption onto a transparent `w × h` RGBA canvas
 /// and return the flat buffer.
-pub(crate) fn composite_rgba(
-    images: &[aribcaption::RenderedImage],
-    w: usize,
-    h: usize,
-) -> Vec<u8> {
+pub(crate) fn composite_rgba(images: &[aribcaption::RenderedImage], w: usize, h: usize) -> Vec<u8> {
     let mut canvas = vec![0u8; w * h * 4];
     for img in images {
         let src_x = img.dst_x.max(0) as usize;
@@ -69,9 +65,11 @@ pub(crate) fn composite_rgba(
                     canvas[d..d + 4].copy_from_slice(&img.rgba[s..s + 4]);
                 } else {
                     let inv = 255 - sa;
-                    canvas[d]     = ((img.rgba[s]     as u32 * sa + canvas[d]     as u32 * inv) / 255) as u8;
-                    canvas[d + 1] = ((img.rgba[s + 1] as u32 * sa + canvas[d + 1] as u32 * inv) / 255) as u8;
-                    canvas[d + 2] = ((img.rgba[s + 2] as u32 * sa + canvas[d + 2] as u32 * inv) / 255) as u8;
+                    canvas[d] = ((img.rgba[s] as u32 * sa + canvas[d] as u32 * inv) / 255) as u8;
+                    canvas[d + 1] =
+                        ((img.rgba[s + 1] as u32 * sa + canvas[d + 1] as u32 * inv) / 255) as u8;
+                    canvas[d + 2] =
+                        ((img.rgba[s + 2] as u32 * sa + canvas[d + 2] as u32 * inv) / 255) as u8;
                     canvas[d + 3] = (sa + canvas[d + 3] as u32 * inv / 255).min(255) as u8;
                 }
             }
@@ -266,7 +264,10 @@ pub fn ensure_caption_png(
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
-    let png_path = cache_dir.join(&stem).join("sub").join(format!("{}.png", id));
+    let png_path = cache_dir
+        .join(&stem)
+        .join("sub")
+        .join(format!("{}.png", id));
 
     // Fast path: already rendered.
     if png_path.exists() {
@@ -276,7 +277,10 @@ pub fn ensure_caption_png(
     // Load PES blob (written by extract_captions at ingest time).
     let blob_path = cache_dir.join(&stem).join("captions.pes");
     if !blob_path.exists() {
-        tracing::debug!("no captions.pes for {} — no subtitle PNG", ts_path.display());
+        tracing::debug!(
+            "no captions.pes for {} — no subtitle PNG",
+            ts_path.display()
+        );
         return Ok(None);
     }
 
@@ -306,7 +310,11 @@ pub fn ensure_caption_png(
     // Render the subtitle active at pts_start_ms.
     let images = renderer.render(pts_start_ms);
     if images.is_empty() {
-        tracing::debug!("renderer returned no images at pts={}ms for caption {}", pts_start_ms, id);
+        tracing::debug!(
+            "renderer returned no images at pts={}ms for caption {}",
+            pts_start_ms,
+            id
+        );
         return Ok(None);
     }
 
@@ -323,7 +331,11 @@ pub fn ensure_caption_png(
     }
     let png_data = encode_png(&rgba, cfg.width, cfg.height)?;
     std::fs::write(&png_path, &png_data)?;
-    tracing::debug!("rendered subtitle PNG for caption {} at pts={}ms", id, pts_start_ms);
+    tracing::debug!(
+        "rendered subtitle PNG for caption {} at pts={}ms",
+        id,
+        pts_start_ms
+    );
 
     Ok(Some(png_path))
 }

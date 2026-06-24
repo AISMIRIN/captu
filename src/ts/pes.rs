@@ -71,7 +71,12 @@ pub struct PsiInfo {
 pub fn scan_psi(ts_path: &Path) -> PsiInfo {
     let mut file = match File::open(ts_path) {
         Ok(f) => f,
-        Err(_) => return PsiInfo { caption_services: vec![], caption_pid: None },
+        Err(_) => {
+            return PsiInfo {
+                caption_services: vec![],
+                caption_pid: None,
+            }
+        }
     };
     let mut packet = [0u8; 188];
 
@@ -125,13 +130,14 @@ pub fn scan_psi(ts_path: &Path) -> PsiInfo {
             if ps + 3 > 188 {
                 continue;
             }
-            let slen =
-                (((packet[ps + 1] as usize) & 0x0F) << 8) | packet[ps + 2] as usize;
+            let slen = (((packet[ps + 1] as usize) & 0x0F) << 8) | packet[ps + 2] as usize;
             let total = 3 + slen;
             let avail = 188 - ps;
             let entry = bufs.entry(pid).or_default();
             entry.0.clear();
-            entry.0.extend_from_slice(&packet[ps..ps + total.min(avail)]);
+            entry
+                .0
+                .extend_from_slice(&packet[ps..ps + total.min(avail)]);
             entry.1 = total;
         } else if let Some(entry) = bufs.get_mut(&pid) {
             if !entry.0.is_empty() {
@@ -157,13 +163,12 @@ pub fn scan_psi(ts_path: &Path) -> PsiInfo {
             if data.len() < 8 {
                 continue;
             }
-            let slen =
-                (((data[1] as usize) & 0x0F) << 8) | data[2] as usize;
+            let slen = (((data[1] as usize) & 0x0F) << 8) | data[2] as usize;
             let end = (3 + slen).min(data.len()).saturating_sub(4);
             let mut p = 8usize;
             while p + 4 <= end {
-                let svc  = ((data[p]     as u16) << 8) | data[p + 1] as u16;
-                let pmt  = ((data[p + 2] as u16 & 0x1F) << 8) | data[p + 3] as u16;
+                let svc = ((data[p] as u16) << 8) | data[p + 1] as u16;
+                let pmt = ((data[p + 2] as u16 & 0x1F) << 8) | data[p + 3] as u16;
                 if svc != 0 {
                     pmt_pids.insert(pmt, svc);
                 }
@@ -179,10 +184,8 @@ pub fn scan_psi(ts_path: &Path) -> PsiInfo {
             if data.len() < 12 {
                 continue;
             }
-            let slen =
-                (((data[1] as usize) & 0x0F) << 8) | data[2] as usize;
-            let prog_info_len =
-                (((data[10] as usize) & 0x0F) << 8) | data[11] as usize;
+            let slen = (((data[1] as usize) & 0x0F) << 8) | data[2] as usize;
+            let prog_info_len = (((data[10] as usize) & 0x0F) << 8) | data[11] as usize;
             let end = (3 + slen).min(data.len()).saturating_sub(4);
             let mut p = 12 + prog_info_len;
 
@@ -192,8 +195,7 @@ pub fn scan_psi(ts_path: &Path) -> PsiInfo {
             while p + 5 <= end {
                 let stream_type = data[p];
                 let es_pid = ((data[p + 1] as u16 & 0x1F) << 8) | data[p + 2] as u16;
-                let es_info_len =
-                    (((data[p + 3] as usize) & 0x0F) << 8) | data[p + 4] as usize;
+                let es_info_len = (((data[p + 3] as usize) & 0x0F) << 8) | data[p + 4] as usize;
 
                 if stream_type == 0x06 {
                     has_private = true;
@@ -203,7 +205,7 @@ pub fn scan_psi(ts_path: &Path) -> PsiInfo {
                     let mut d = desc_start;
                     let mut is_arib_es = false;
                     while d + 2 <= desc_end {
-                        let tag  = data[d];
+                        let tag = data[d];
                         let dlen = data[d + 1] as usize;
                         if tag == 0xFD && dlen >= 2 && d + 2 + dlen <= desc_end {
                             let dc_id = ((data[d + 2] as u16) << 8) | data[d + 3] as u16;
@@ -245,7 +247,10 @@ pub fn scan_psi(ts_path: &Path) -> PsiInfo {
     };
     let caption_pid = arib_pid.or(fallback_pid);
 
-    PsiInfo { caption_services, caption_pid }
+    PsiInfo {
+        caption_services,
+        caption_pid,
+    }
 }
 
 /// Thin wrapper kept for backward compatibility.
@@ -273,7 +278,7 @@ pub fn demux_caption_pes(ts_path: &Path, caption_pid: u16) -> Vec<CaptionPes> {
 
     // Accumulator for the current PES in progress.
     let mut pes_buf: Vec<u8> = Vec::new();
-    let mut pes_total: usize = 0;  // declared PES packet length (0 = unbounded)
+    let mut pes_total: usize = 0; // declared PES packet length (0 = unbounded)
     let mut pes_pts_90k: Option<u64> = None;
 
     // Reference epoch: abs 90kHz PTS of the first packet seen.
@@ -332,15 +337,14 @@ pub fn demux_caption_pes(ts_path: &Path, caption_pid: u16) -> Vec<CaptionPes> {
             }
 
             // PES packet length field (bytes 4-5 of the PES header, 0 = unbounded).
-            let pes_len =
-                ((packet[ps + 4] as usize) << 8) | packet[ps + 5] as usize;
+            let pes_len = ((packet[ps + 4] as usize) << 8) | packet[ps + 5] as usize;
             // total = 6 (fixed header) + pes_len bytes;  0 = unbounded stream.
             pes_total = if pes_len == 0 { 0 } else { 6 + pes_len };
 
             // PTS is present when pts_dts_flags[7:6] != 0b00
             let pts_dts_flags = (packet[ps + 7] >> 6) & 0x03;
             if pts_dts_flags != 0 && avail >= 14 {
-                let p = &packet[ps + 9..];  // PES optional header start
+                let p = &packet[ps + 9..]; // PES optional header start
                 if p.len() >= 5 {
                     let pts = parse_pts(p);
                     pes_pts_90k = Some(pts);
@@ -442,7 +446,7 @@ mod tests {
         [
             (((pts >> 29) & 0x0E) | 0x01) as u8, // [bits32:30 in b3:b1] | marker
             ((pts >> 22) & 0xFF) as u8,
-            ((((pts >> 14) & 0xFE) | 0x01)) as u8,
+            (((pts >> 14) & 0xFE) | 0x01) as u8,
             ((pts >> 7) & 0xFF) as u8,
             (((pts & 0x7F) << 1) | 0x01) as u8,
         ]
@@ -508,7 +512,7 @@ mod tests {
     #[test]
     fn extract_pes_payload_with_optional_header() {
         let payload = b"\xAA\xBB";
-        let pes = make_pes(5, payload);  // 5-byte optional header
+        let pes = make_pes(5, payload); // 5-byte optional header
         assert_eq!(extract_pes_payload(&pes), payload);
     }
 

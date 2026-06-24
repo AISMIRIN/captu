@@ -70,7 +70,11 @@ pub async fn contact(
         caption_id: id,
         ts_file_id: row.ts_file_id,
         display_title: display_title(&row.title, row.episode_number, row.episode_title.as_deref()),
-        time_str: format!("{} – {}", super::fmt_ms(row.pts_start), super::fmt_ms(row.pts_end)),
+        time_str: format!(
+            "{} – {}",
+            super::fmt_ms(row.pts_start),
+            super::fmt_ms(row.pts_end)
+        ),
         text: row.text,
         frames: (0..thumb_count).collect(),
         selected_frame: row.selected_frame,
