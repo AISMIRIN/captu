@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT filename FROM ts_files WHERE status = 'ingesting'",
+  "describe": {
+    "columns": [
+      {
+        "name": "filename",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3079136dbed36a2ad5e12978f72bdfa5bd8c03b7506e09ae56a14d9e71bcf9aa"
+}

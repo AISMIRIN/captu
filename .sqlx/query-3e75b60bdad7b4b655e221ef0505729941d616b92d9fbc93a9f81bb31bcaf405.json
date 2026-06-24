@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM programs WHERE id NOT IN (SELECT DISTINCT program_id FROM ts_files WHERE program_id IS NOT NULL)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "3e75b60bdad7b4b655e221ef0505729941d616b92d9fbc93a9f81bb31bcaf405"
+}

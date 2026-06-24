@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: i64\", title FROM programs p\n         WHERE EXISTS (\n             SELECT 1 FROM ts_files f\n             JOIN captions c ON c.ts_file_id = f.id\n             WHERE f.program_id = p.id\n         )\n         ORDER BY title",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Int64"
+      },
+      {
+        "name": "title",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "cb577f075f25c13d9def2f066b8fa103a7d137a9b0dafa48e01345079c2cbc53"
+}

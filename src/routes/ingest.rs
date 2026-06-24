@@ -5,7 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
-use sqlx::Row;
+use sqlx::{QueryBuilder, Row, Sqlite};
 use std::path::PathBuf;
 
 use captu::ingest;
@@ -84,13 +84,15 @@ pub struct IngestStatusTemplate {
 
 pub async fn status(State(state): State<AppState>) -> Result<IngestStatusTemplate, StatusCode> {
     // Aggregate status counts.
-    let count_rows = sqlx::query("SELECT status, COUNT(*) as cnt FROM ts_files GROUP BY status")
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("/ingest/status db error: {:#}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let count_rows = sqlx::query!(
+        r#"SELECT status, COUNT(*) AS "cnt!: i64" FROM ts_files GROUP BY status"#
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("/ingest/status db error: {:#}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let mut pending = 0i64;
     let mut ingesting = 0i64;
@@ -98,35 +100,35 @@ pub async fn status(State(state): State<AppState>) -> Result<IngestStatusTemplat
     let mut error = 0i64;
 
     for row in &count_rows {
-        let s: String = row.get("status");
-        let c: i64 = row.get("cnt");
-        match s.as_str() {
-            "pending" => pending = c,
-            "ingesting" => ingesting = c,
-            "done" => done = c,
-            "error" => error = c,
+        match row.status.as_str() {
+            "pending"   => pending   = row.cnt,
+            "ingesting" => ingesting = row.cnt,
+            "done"      => done      = row.cnt,
+            "error"     => error     = row.cnt,
             _ => {}
         }
     }
     let total = pending + ingesting + done + error;
 
     // List files currently being ingested.
-    let ing_rows = sqlx::query("SELECT filename FROM ts_files WHERE status = 'ingesting'")
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("/ingest/status (ingesting list) db error: {:#}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-    let ingesting_files: Vec<String> = ing_rows.iter().map(|r| r.get("filename")).collect();
+    let ing_rows = sqlx::query!(
+        "SELECT filename FROM ts_files WHERE status = 'ingesting'",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("/ingest/status (ingesting list) db error: {:#}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    let ingesting_files: Vec<String> = ing_rows.into_iter().map(|r| r.filename).collect();
 
     // Most recent errors (up to 5).
-    let err_rows = sqlx::query(
-        "SELECT filename, COALESCE(error_msg, '(unknown)') AS error_msg
+    let err_rows = sqlx::query!(
+        r#"SELECT filename, COALESCE(error_msg, '(unknown)') AS "error_msg!: String"
          FROM ts_files
          WHERE status = 'error'
          ORDER BY ingested_at DESC
-         LIMIT 5",
+         LIMIT 5"#,
     )
     .fetch_all(&state.pool)
     .await
@@ -136,10 +138,10 @@ pub async fn status(State(state): State<AppState>) -> Result<IngestStatusTemplat
     })?;
 
     let recent_errors = err_rows
-        .iter()
+        .into_iter()
         .map(|r| ErrorEntry {
-            filename: r.get("filename"),
-            error_msg: r.get("error_msg"),
+            filename: r.filename,
+            error_msg: r.error_msg,
         })
         .collect();
 
@@ -175,61 +177,43 @@ pub async fn files(
         Some(format!("%{}%", like_escape(&q)))
     };
 
-    // Build WHERE clause dynamically.
-    let mut conditions: Vec<&str> = Vec::new();
-    if bind_q.is_some() {
-        conditions.push("f.filename LIKE ? ESCAPE '\\'");
-    }
-    if status_filter != "all" {
-        conditions.push("f.status = ?");
-    }
-    let where_clause = if conditions.is_empty() {
-        String::new()
-    } else {
-        format!("WHERE {}", conditions.join(" AND "))
+    let base_from = "FROM ts_files f LEFT JOIN programs p ON f.program_id = p.id";
+
+    // ── COUNT query ──────────────────────────────────────────────────────────
+    let total: i64 = {
+        let mut qb = QueryBuilder::<Sqlite>::new(format!("SELECT COUNT(*) {base_from}"));
+        push_files_where(&mut qb, bind_q.as_deref(), &status_filter);
+        qb.build_query_scalar()
+            .fetch_one(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("/ingest/files count error: {:#}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
     };
 
-    let base_sql = format!(
-        "FROM ts_files f LEFT JOIN programs p ON f.program_id = p.id {where_clause}"
-    );
-
-    // COUNT query.
-    let count_sql = format!("SELECT COUNT(*) {base_sql}");
-    let mut cq = sqlx::query_scalar::<_, i64>(&count_sql);
-    if let Some(ref bq) = bind_q {
-        cq = cq.bind(bq.as_str());
-    }
-    if status_filter != "all" {
-        cq = cq.bind(status_filter.as_str());
-    }
-    let total: i64 = cq.fetch_one(&state.pool).await.map_err(|e| {
-        tracing::error!("/ingest/files count error: {:#}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    // Main query.
-    let main_sql = format!(
-        "SELECT f.id, f.filename, f.status, f.error_msg, f.ingested_at,
-                f.episode_number, f.episode_title, f.air_date,
-                COALESCE(p.title, f.filename) AS title,
-                (SELECT COUNT(*) FROM captions c WHERE c.ts_file_id = f.id) AS caption_count
-         {base_sql}
-         ORDER BY f.ingested_at DESC, f.id DESC
-         LIMIT ? OFFSET ?"
-    );
-    let mut mq = sqlx::query(&main_sql);
-    if let Some(ref bq) = bind_q {
-        mq = mq.bind(bq.as_str());
-    }
-    if status_filter != "all" {
-        mq = mq.bind(status_filter.as_str());
-    }
-    mq = mq.bind(FILE_PAGE_SIZE).bind(offset);
-
-    let rows = mq.fetch_all(&state.pool).await.map_err(|e| {
-        tracing::error!("/ingest/files list error: {:#}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    // ── Main query ───────────────────────────────────────────────────────────
+    let rows = {
+        let mut qb = QueryBuilder::<Sqlite>::new(format!(
+            "SELECT f.id, f.filename, f.status, f.error_msg, f.ingested_at, \
+                    f.episode_number, f.episode_title, f.air_date, \
+                    COALESCE(p.title, f.filename) AS title, \
+                    (SELECT COUNT(*) FROM captions c WHERE c.ts_file_id = f.id) AS caption_count \
+             {base_from}"
+        ));
+        push_files_where(&mut qb, bind_q.as_deref(), &status_filter);
+        qb.push(" ORDER BY f.ingested_at DESC, f.id DESC LIMIT ");
+        qb.push_bind(FILE_PAGE_SIZE);
+        qb.push(" OFFSET ");
+        qb.push_bind(offset);
+        qb.build()
+            .fetch_all(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("/ingest/files list error: {:#}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
+    };
 
     let file_items: Vec<FileListItem> = rows
         .iter()
@@ -263,20 +247,48 @@ pub async fn files(
     })
 }
 
+/// Append a WHERE clause to a QueryBuilder for the files() list.
+/// Conditions: filename LIKE (if bind_q is Some) and/or status = (if not "all").
+fn push_files_where(qb: &mut QueryBuilder<Sqlite>, bind_q: Option<&str>, status_filter: &str) {
+    let mut n = 0usize;
+
+    macro_rules! cond {
+        ($qb:expr, $n:ident) => {{
+            if $n == 0 {
+                $qb.push(" WHERE ");
+            } else {
+                $qb.push(" AND ");
+            }
+            $n += 1;
+        }};
+    }
+
+    if let Some(bq) = bind_q {
+        cond!(qb, n);
+        qb.push("f.filename LIKE ").push_bind(bq.to_owned()).push(" ESCAPE '\\'");
+    }
+    if status_filter != "all" {
+        cond!(qb, n);
+        qb.push("f.status = ").push_bind(status_filter.to_owned());
+    }
+    // Silence unused_assignments: n is a write-only counter after the last condition.
+    let _ = n;
+}
+
 /// GET /ingest/file/:id — detail page for a single TS file.
 pub async fn file_detail(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<IngestFileTemplate, StatusCode> {
-    let row = sqlx::query(
-        "SELECT f.id, f.filename, f.path, f.status, f.error_msg, f.ingested_at,
+    let row = sqlx::query!(
+        r#"SELECT f.id AS "id!: i64", f.filename, f.path, f.status, f.error_msg, f.ingested_at,
                 f.episode_number, f.episode_title, f.air_date,
-                COALESCE(p.title, f.filename) AS title,
-                (SELECT COUNT(*) FROM captions c WHERE c.ts_file_id = f.id) AS caption_count
+                COALESCE(p.title, f.filename) AS "title!: String",
+                (SELECT COUNT(*) FROM captions c WHERE c.ts_file_id = f.id) AS "caption_count!: i64"
          FROM ts_files f LEFT JOIN programs p ON f.program_id = p.id
-         WHERE f.id = ?",
+         WHERE f.id = ?"#,
+        id,
     )
-    .bind(id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|e| {
@@ -285,21 +297,19 @@ pub async fn file_detail(
     })?
     .ok_or(StatusCode::NOT_FOUND)?;
 
-    let title: String = row.get("title");
-    let ep: Option<i64> = row.get("episode_number");
-    let sub: Option<String> = row.get("episode_title");
-
     Ok(IngestFileTemplate {
         file: FileDetail {
-            id: row.get("id"),
-            filename: row.get("filename"),
-            path: row.get("path"),
-            status: row.get("status"),
-            error_msg: row.get("error_msg"),
-            ingested_at: row.get("ingested_at"),
-            display_title: display_title(&title, ep, sub.as_deref()),
-            air_date: row.get("air_date"),
-            caption_count: row.get("caption_count"),
+            id: row.id,
+            filename: row.filename,
+            path: row.path,
+            status: row.status,
+            error_msg: row.error_msg,
+            // ingested_at is DATETIME; chrono decodes as NaiveDateTime — convert to String.
+            ingested_at: row.ingested_at.map(|dt| dt.to_string()),
+            display_title: display_title(&row.title, row.episode_number, row.episode_title.as_deref()),
+            // air_date is DATE; chrono decodes as NaiveDate — convert to String.
+            air_date: row.air_date.map(|d| d.to_string()),
+            caption_count: row.caption_count,
         },
     })
 }

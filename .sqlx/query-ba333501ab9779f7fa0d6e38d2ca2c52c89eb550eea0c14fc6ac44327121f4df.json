@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO thumbnails(caption_id, selected_frame) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "ba333501ab9779f7fa0d6e38d2ca2c52c89eb550eea0c14fc6ac44327121f4df"
+}

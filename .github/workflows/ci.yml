@@ -35,7 +35,11 @@ jobs:
         run: cargo fmt --all --check
 
       - name: cargo clippy
+        env:
+          SQLX_OFFLINE: "true"
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: cargo test
+        env:
+          SQLX_OFFLINE: "true"
         run: cargo test --workspace

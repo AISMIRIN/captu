@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO programs (title, normalized_title) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "8af103a8d9a8c6ecf5d6b18fdce70bea947d3bbe07986782f9b3f61a18aaa739"
+}

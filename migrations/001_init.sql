@@ -1,8 +1,3 @@
--- Reference schema (informational only).
--- The authoritative runtime schema is defined and applied by src/db.rs::create_schema().
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-
 CREATE TABLE IF NOT EXISTS programs (
     id               INTEGER PRIMARY KEY,
     title            TEXT NOT NULL UNIQUE,
@@ -42,7 +37,7 @@ CREATE TRIGGER IF NOT EXISTS captions_ai AFTER INSERT ON captions BEGIN
     INSERT INTO captions_fts(rowid, text) VALUES (new.id, new.text);
 END;
 
--- Delete trigger: keep FTS in sync when captions are removed (e.g. reingest reset).
+-- Keep FTS in sync when captions are removed (e.g. reingest reset).
 CREATE TRIGGER IF NOT EXISTS captions_ad AFTER DELETE ON captions BEGIN
     INSERT INTO captions_fts(captions_fts, rowid, text)
     VALUES ('delete', old.id, old.text);

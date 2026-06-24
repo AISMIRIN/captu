@@ -3,7 +3,6 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use sqlx::Row;
 
 use super::{display_title, AppState};
 
@@ -29,26 +28,26 @@ pub async fn contact(
 ) -> Result<ContactTemplate, StatusCode> {
     let rep_frame = state.config.capture.thumb_count as i64 / 2;
 
-    let row = sqlx::query(
+    let row = sqlx::query!(
         r#"
         SELECT
-            f.id          AS ts_file_id,
-            c.pts_start,
-            c.pts_end,
+            f.id          AS "ts_file_id!: i64",
+            c.pts_start   AS "pts_start!: i64",
+            c.pts_end     AS "pts_end!: i64",
             c.text,
-            COALESCE(p.title, f.filename) AS title,
+            COALESCE(p.title, f.filename) AS "title!: String",
             f.episode_number,
             f.episode_title,
-            COALESCE(t.selected_frame, ?) AS selected_frame
+            COALESCE(t.selected_frame, ?) AS "selected_frame!: i64"
         FROM captions c
         JOIN ts_files f ON c.ts_file_id = f.id
         LEFT JOIN programs p ON f.program_id = p.id
         LEFT JOIN thumbnails t ON t.caption_id = c.id
         WHERE c.id = ?
         "#,
+        rep_frame,
+        id,
     )
-    .bind(rep_frame)
-    .bind(id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|e| {
@@ -57,14 +56,6 @@ pub async fn contact(
     })?
     .ok_or(StatusCode::NOT_FOUND)?;
 
-    let ts_file_id: i64 = row.get("ts_file_id");
-    let pts_start: i64 = row.get("pts_start");
-    let pts_end: i64 = row.get("pts_end");
-    let text: String = row.get("text");
-    let title: String = row.get("title");
-    let episode_number: Option<i64> = row.get("episode_number");
-    let episode_title: Option<String> = row.get("episode_title");
-    let selected_frame: i64 = row.get("selected_frame");
     let thumb_count = state.config.capture.thumb_count;
 
     // Thumbnail generation is deferred to /thumb/:id/:n requests (with per-caption locking).
@@ -77,12 +68,12 @@ pub async fn contact(
 
     Ok(ContactTemplate {
         caption_id: id,
-        ts_file_id,
-        display_title: display_title(&title, episode_number, episode_title.as_deref()),
-        time_str: format!("{} – {}", super::fmt_ms(pts_start), super::fmt_ms(pts_end)),
-        text,
+        ts_file_id: row.ts_file_id,
+        display_title: display_title(&row.title, row.episode_number, row.episode_title.as_deref()),
+        time_str: format!("{} – {}", super::fmt_ms(row.pts_start), super::fmt_ms(row.pts_end)),
+        text: row.text,
         frames: (0..thumb_count).collect(),
-        selected_frame,
+        selected_frame: row.selected_frame,
         tags,
     })
 }

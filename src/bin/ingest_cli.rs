@@ -88,11 +88,13 @@ async fn main() -> Result<()> {
         let ts_path = Path::new(ts_path);
         let path_str = ts_path.to_string_lossy().to_string();
 
-        let ts_file_id: Option<i64> =
-            sqlx::query_scalar("SELECT id FROM ts_files WHERE path = ?")
-                .bind(&path_str)
-                .fetch_optional(&pool)
-                .await?;
+        let ts_file_id =
+            sqlx::query_scalar!(
+                r#"SELECT id as "id!: i64" FROM ts_files WHERE path = ?"#,
+                path_str,
+            )
+            .fetch_optional(&pool)
+            .await?;
 
         let id = ts_file_id.ok_or_else(|| {
             anyhow::anyhow!(
@@ -119,9 +121,8 @@ async fn main() -> Result<()> {
             .parse()
             .map_err(|_| anyhow::anyhow!("--reingest-program requires a numeric program id"))?;
 
-        let title: Option<String> =
-            sqlx::query_scalar("SELECT title FROM programs WHERE id = ?")
-                .bind(program_id)
+        let title =
+            sqlx::query_scalar!("SELECT title FROM programs WHERE id = ?", program_id)
                 .fetch_optional(&pool)
                 .await?;
 
@@ -141,21 +142,26 @@ async fn main() -> Result<()> {
     // Default: scan + ingest
     captu::ingest::scan_and_ingest(config, pool.clone()).await?;
 
-    // Print summary
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ts_files")
+    // Print summary — COUNT(*) in SQLite returns i32; cast explicitly to i64.
+    let total: i64 = sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM ts_files"#)
         .fetch_one(&pool)
         .await?;
     let done: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM ts_files WHERE status = 'done'")
-            .fetch_one(&pool)
-            .await?;
-    let error: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM ts_files WHERE status = 'error'")
-            .fetch_one(&pool)
-            .await?;
-    let caption_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM captions")
+        sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!: i64" FROM ts_files WHERE status = 'done'"#
+        )
         .fetch_one(&pool)
         .await?;
+    let error: i64 =
+        sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!: i64" FROM ts_files WHERE status = 'error'"#
+        )
+        .fetch_one(&pool)
+        .await?;
+    let caption_count: i64 =
+        sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM captions"#)
+            .fetch_one(&pool)
+            .await?;
 
     println!("\n[ingest_cli] summary:");
     println!("  ts_files: total={} done={} error={}", total, done, error);

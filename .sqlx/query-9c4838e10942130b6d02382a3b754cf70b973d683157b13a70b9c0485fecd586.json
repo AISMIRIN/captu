@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT filename, COALESCE(error_msg, '(unknown)') AS \"error_msg!: String\"\n         FROM ts_files\n         WHERE status = 'error'\n         ORDER BY ingested_at DESC\n         LIMIT 5",
+  "describe": {
+    "columns": [
+      {
+        "name": "filename",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "error_msg!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "9c4838e10942130b6d02382a3b754cf70b973d683157b13a70b9c0485fecd586"
+}

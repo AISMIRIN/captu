@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT f.path, c.pts_start, c.pts_end FROM captions c JOIN ts_files f ON c.ts_file_id = f.id WHERE c.id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "path",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "pts_start",
+        "ordinal": 1,
+        "type_info": "Int64"
+      },
+      {
+        "name": "pts_end",
+        "ordinal": 2,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7ec75fc910195b41913d32fd92ada14f0d5371b36f8f22d7d78a80cb8f42ed37"
+}

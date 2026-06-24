@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM tags WHERE caption_id IN (SELECT id FROM captions WHERE ts_file_id = ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "dd8d44549a663a2bce14621d4d25adb0100f98e4e86e0b59c2cc68c6c4302aed"
+}

@@ -29,7 +29,7 @@ pub async fn scan_and_enqueue(config: &Config, pool: &SqlitePool) -> Result<usiz
     }
 
     // Files already processed don't need re-queueing.
-    let skip: HashSet<String> = sqlx::query_scalar(
+    let skip: HashSet<String> = sqlx::query_scalar!(
         "SELECT path FROM ts_files WHERE status IN ('done', 'error', 'ingesting')",
     )
     .fetch_all(pool)
@@ -96,11 +96,11 @@ pub async fn scan_and_enqueue(config: &Config, pool: &SqlitePool) -> Result<usiz
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
 
-        let affected = sqlx::query(
+        let affected = sqlx::query!(
             "INSERT OR IGNORE INTO ts_files (path, filename, status) VALUES (?, ?, 'pending')",
+            path_str,
+            filename,
         )
-        .bind(&path_str)
-        .bind(&filename)
         .execute(pool)
         .await?
         .rows_affected();
@@ -150,11 +150,11 @@ async fn worker_loop(worker_id: usize, config: Arc<Config>, pool: SqlitePool) {
         // Atomically move one 'pending' row to 'ingesting'.
         // SQLite evaluates the subquery and WHERE atomically, so concurrent
         // workers cannot claim the same file.
-        let row: Option<(i64, String)> = match sqlx::query_as(
-            "UPDATE ts_files SET status = 'ingesting'
+        let row = match sqlx::query!(
+            r#"UPDATE ts_files SET status = 'ingesting'
              WHERE id = (SELECT id FROM ts_files WHERE status = 'pending' LIMIT 1)
                AND status = 'pending'
-             RETURNING id, path",
+             RETURNING id AS "id!: i64", path AS "path!: String""#,
         )
         .fetch_optional(&pool)
         .await
@@ -167,7 +167,9 @@ async fn worker_loop(worker_id: usize, config: Arc<Config>, pool: SqlitePool) {
         };
 
         match row {
-            Some((ts_file_id, path_str)) => {
+            Some(r) => {
+                let ts_file_id = r.id;
+                let path_str = r.path;
                 let path = PathBuf::from(&path_str);
                 tracing::info!("[worker {}] ingest start: {}", worker_id, path_str);
                 if let Err(e) = do_ingest(&path, &config, &pool, ts_file_id).await {
@@ -178,11 +180,11 @@ async fn worker_loop(worker_id: usize, config: Arc<Config>, pool: SqlitePool) {
                         e
                     );
                     let msg = format!("{:#}", e);
-                    let _ = sqlx::query(
+                    let _ = sqlx::query!(
                         "UPDATE ts_files SET status = 'error', error_msg = ? WHERE id = ?",
+                        msg,
+                        ts_file_id,
                     )
-                    .bind(&msg)
-                    .bind(ts_file_id)
                     .execute(&pool)
                     .await;
                 }
@@ -240,16 +242,20 @@ async fn do_ingest(
 
     let program_id: Option<i64> = if !program_key.is_empty() {
         let normalized = normalize_title(&program_key);
-        sqlx::query("INSERT OR IGNORE INTO programs (title, normalized_title) VALUES (?, ?)")
-            .bind(&program_key)
-            .bind(&normalized)
-            .execute(pool)
-            .await?;
+        sqlx::query!(
+            "INSERT OR IGNORE INTO programs (title, normalized_title) VALUES (?, ?)",
+            program_key,
+            normalized,
+        )
+        .execute(pool)
+        .await?;
 
-        let id: i64 = sqlx::query_scalar("SELECT id FROM programs WHERE title = ?")
-            .bind(&program_key)
-            .fetch_one(pool)
-            .await?;
+        let id = sqlx::query_scalar!(
+            r#"SELECT id as "id!: i64" FROM programs WHERE title = ?"#,
+            program_key,
+        )
+        .fetch_one(pool)
+        .await?;
         Some(id)
     } else {
         None
@@ -260,31 +266,31 @@ async fn do_ingest(
     let air_date = epg.air_datetime.map(|dt| dt.date_naive().to_string());
     let ingested_at: NaiveDateTime = Utc::now().naive_utc();
 
-    sqlx::query(
+    sqlx::query!(
         "UPDATE ts_files
          SET status = 'done', ingested_at = ?, program_id = ?,
              episode_number = ?, episode_title = ?, air_date = ?
          WHERE id = ?",
+        ingested_at,
+        program_id,
+        episode_number,
+        episode_title,
+        air_date,
+        ts_file_id,
     )
-    .bind(ingested_at)
-    .bind(program_id)
-    .bind(episode_number)
-    .bind(episode_title)
-    .bind(air_date)
-    .bind(ts_file_id)
     .execute(pool)
     .await?;
 
     // Insert all captions in a single transaction.
     let mut tx = pool.begin().await?;
     for cap in &captions {
-        sqlx::query(
+        sqlx::query!(
             "INSERT INTO captions (ts_file_id, pts_start, pts_end, text) VALUES (?, ?, ?, ?)",
+            ts_file_id,
+            cap.pts_start_ms,
+            cap.pts_end_ms,
+            cap.text,
         )
-        .bind(ts_file_id)
-        .bind(cap.pts_start_ms)
-        .bind(cap.pts_end_ms)
-        .bind(&cap.text)
         .execute(&mut *tx)
         .await?;
     }
@@ -305,9 +311,8 @@ async fn do_ingest(
 /// the cache directory, and the ts_files row itself.
 pub async fn delete_ts_file(pool: &SqlitePool, ts_file_id: i64, cache_dir: &Path) -> Result<()> {
     // Fetch path first — needed for cache dir removal.
-    let path_str: Option<String> =
-        sqlx::query_scalar("SELECT path FROM ts_files WHERE id = ?")
-            .bind(ts_file_id)
+    let path_str =
+        sqlx::query_scalar!("SELECT path FROM ts_files WHERE id = ?", ts_file_id)
             .fetch_optional(pool)
             .await?;
 
@@ -320,14 +325,15 @@ pub async fn delete_ts_file(pool: &SqlitePool, ts_file_id: i64, cache_dir: &Path
     };
 
     // tags has no ON DELETE CASCADE, so delete before captions.
-    sqlx::query("DELETE FROM tags WHERE caption_id IN (SELECT id FROM captions WHERE ts_file_id = ?)")
-        .bind(ts_file_id)
-        .execute(pool)
-        .await?;
+    sqlx::query!(
+        "DELETE FROM tags WHERE caption_id IN (SELECT id FROM captions WHERE ts_file_id = ?)",
+        ts_file_id,
+    )
+    .execute(pool)
+    .await?;
 
     // captions_ad trigger removes captions from captions_fts; thumbnails cascade automatically.
-    sqlx::query("DELETE FROM captions WHERE ts_file_id = ?")
-        .bind(ts_file_id)
+    sqlx::query!("DELETE FROM captions WHERE ts_file_id = ?", ts_file_id)
         .execute(pool)
         .await?;
 
@@ -340,8 +346,7 @@ pub async fn delete_ts_file(pool: &SqlitePool, ts_file_id: i64, cache_dir: &Path
         }
     }
 
-    sqlx::query("DELETE FROM ts_files WHERE id = ?")
-        .bind(ts_file_id)
+    sqlx::query!("DELETE FROM ts_files WHERE id = ?", ts_file_id)
         .execute(pool)
         .await?;
 
@@ -383,8 +388,8 @@ pub async fn reconcile_deleted(
     }
 
     // Collect all trackable rows: done / error / pending.  Exclude ingesting.
-    let rows: Vec<(i64, String)> = sqlx::query_as(
-        "SELECT id, path FROM ts_files WHERE status IN ('done', 'error', 'pending')",
+    let rows = sqlx::query!(
+        r#"SELECT id as "id!: i64", path FROM ts_files WHERE status IN ('done', 'error', 'pending')"#,
     )
     .fetch_all(pool)
     .await?;
@@ -396,8 +401,8 @@ pub async fn reconcile_deleted(
     // Check path existence in a blocking thread (many stat(2) calls).
     let missing_ids: Vec<i64> = tokio::task::spawn_blocking(move || {
         rows.into_iter()
-            .filter(|(_, path)| !Path::new(path).exists())
-            .map(|(id, _)| id)
+            .filter(|r| !Path::new(&r.path).exists())
+            .map(|r| r.id)
             .collect()
     })
     .await?;
@@ -411,7 +416,7 @@ pub async fn reconcile_deleted(
 
     // Purge programs that are no longer referenced by any ts_file.
     if count > 0 {
-        sqlx::query(
+        sqlx::query!(
             "DELETE FROM programs \
              WHERE id NOT IN \
                (SELECT DISTINCT program_id FROM ts_files WHERE program_id IS NOT NULL)",
@@ -430,9 +435,8 @@ pub async fn reset_ts_file(
     ts_file_id: i64,
     cache_dir: &Path,
 ) -> Result<()> {
-    let path_str: Option<String> =
-        sqlx::query_scalar("SELECT path FROM ts_files WHERE id = ?")
-            .bind(ts_file_id)
+    let path_str =
+        sqlx::query_scalar!("SELECT path FROM ts_files WHERE id = ?", ts_file_id)
             .fetch_optional(pool)
             .await?;
 
@@ -440,19 +444,18 @@ pub async fn reset_ts_file(
         path_str.ok_or_else(|| anyhow::anyhow!("ts_file id={} not found", ts_file_id))?;
 
     // Delete captions; the captions_ad trigger removes them from captions_fts.
-    sqlx::query("DELETE FROM captions WHERE ts_file_id = ?")
-        .bind(ts_file_id)
+    sqlx::query!("DELETE FROM captions WHERE ts_file_id = ?", ts_file_id)
         .execute(pool)
         .await?;
 
     // Clear metadata and reset to 'pending'.
-    sqlx::query(
+    sqlx::query!(
         "UPDATE ts_files
          SET status = 'pending', error_msg = NULL, ingested_at = NULL,
              program_id = NULL, episode_number = NULL, episode_title = NULL, air_date = NULL
          WHERE id = ?",
+        ts_file_id,
     )
-    .bind(ts_file_id)
     .execute(pool)
     .await?;
 
@@ -477,9 +480,8 @@ pub async fn clear_subtitles(
     ts_file_id: i64,
     cache_dir: &Path,
 ) -> Result<()> {
-    let path_str: Option<String> =
-        sqlx::query_scalar("SELECT path FROM ts_files WHERE id = ?")
-            .bind(ts_file_id)
+    let path_str =
+        sqlx::query_scalar!("SELECT path FROM ts_files WHERE id = ?", ts_file_id)
             .fetch_optional(pool)
             .await?;
 
@@ -492,16 +494,15 @@ pub async fn clear_subtitles(
     };
 
     // tags has no ON DELETE CASCADE from captions, so delete before captions.
-    sqlx::query(
+    sqlx::query!(
         "DELETE FROM tags WHERE caption_id IN (SELECT id FROM captions WHERE ts_file_id = ?)",
+        ts_file_id,
     )
-    .bind(ts_file_id)
     .execute(pool)
     .await?;
 
     // captions_ad trigger removes rows from captions_fts; thumbnails cascade automatically.
-    sqlx::query("DELETE FROM captions WHERE ts_file_id = ?")
-        .bind(ts_file_id)
+    sqlx::query!("DELETE FROM captions WHERE ts_file_id = ?", ts_file_id)
         .execute(pool)
         .await?;
 
@@ -523,10 +524,12 @@ pub async fn reset_program(
     cache_dir: &Path,
 ) -> Result<()> {
     let ids: Vec<i64> =
-        sqlx::query_scalar("SELECT id FROM ts_files WHERE program_id = ?")
-            .bind(program_id)
-            .fetch_all(pool)
-            .await?;
+        sqlx::query_scalar!(
+            r#"SELECT id as "id!: i64" FROM ts_files WHERE program_id = ?"#,
+            program_id,
+        )
+        .fetch_all(pool)
+        .await?;
 
     let count = ids.len();
     for id in ids {

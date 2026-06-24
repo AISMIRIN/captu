@@ -4,7 +4,6 @@ use axum::{
     http::StatusCode,
 };
 use serde::{Deserialize, Deserializer};
-use sqlx::Row;
 
 use super::AppState;
 
@@ -61,14 +60,14 @@ pub async fn episodes(
         }
     };
 
-    let rows = sqlx::query(
+    let rows = sqlx::query!(
         "SELECT episode_number, episode_title, air_date
          FROM ts_files
          WHERE program_id = ? AND status = 'done'
            AND EXISTS (SELECT 1 FROM captions c WHERE c.ts_file_id = ts_files.id)
          ORDER BY episode_number, air_date",
+        pid,
     )
-    .bind(pid)
     .fetch_all(&state.pool)
     .await
     .map_err(|e| {
@@ -77,11 +76,12 @@ pub async fn episodes(
     })?;
 
     let items: Vec<EpisodeItem> = rows
-        .iter()
+        .into_iter()
         .map(|r| EpisodeItem {
-            episode_number: r.get("episode_number"),
-            episode_title: r.get("episode_title"),
-            air_date: r.get("air_date"),
+            episode_number: r.episode_number,
+            episode_title: r.episode_title,
+            // air_date is a DATE column; chrono decodes it as NaiveDate — convert to String.
+            air_date: r.air_date.map(|d| d.to_string()),
         })
         .collect();
 
@@ -89,14 +89,18 @@ pub async fn episodes(
     let all_null = items.iter().all(|e| e.episode_number.is_none());
 
     if all_null {
-        let sub_rows = sqlx::query(
-            "SELECT episode_title, MIN(air_date) AS air_date FROM ts_files
+        let sub_rows = sqlx::query!(
+            // MIN() on DATE can return NULL type in SQLite's type inference.
+            // Annotate the inner type as String; the nullable column wraps it in Option<String>.
+            r#"SELECT episode_title AS "episode_title!",
+                      MIN(air_date) AS "air_date: String"
+             FROM ts_files
              WHERE program_id = ? AND status = 'done' AND episode_title IS NOT NULL
                AND EXISTS (SELECT 1 FROM captions c WHERE c.ts_file_id = ts_files.id)
              GROUP BY episode_title
-             ORDER BY air_date",
+             ORDER BY air_date"#,
+            pid,
         )
-        .bind(pid)
         .fetch_all(&state.pool)
         .await
         .map_err(|e| {
@@ -105,10 +109,10 @@ pub async fn episodes(
         })?;
 
         let subtitles: Vec<SubtitleItem> = sub_rows
-            .iter()
+            .into_iter()
             .map(|r| SubtitleItem {
-                title: r.get::<String, _>("episode_title"),
-                air_date: r.get("air_date"),
+                title: r.episode_title,
+                air_date: r.air_date,
             })
             .collect();
 

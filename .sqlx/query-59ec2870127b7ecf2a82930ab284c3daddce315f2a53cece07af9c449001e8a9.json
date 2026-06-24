@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO captions (ts_file_id, pts_start, pts_end, text) VALUES (?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "59ec2870127b7ecf2a82930ab284c3daddce315f2a53cece07af9c449001e8a9"
+}

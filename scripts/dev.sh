@@ -45,6 +45,7 @@ exec docker run --rm -i "${TTY_FLAG[@]}" \
     -e CARGO_HOME=/app/.cache/cargo \
     -e CAPTU_DB_PATH=/app/data/captu-dev.db \
     -e CAPTU_CACHE_DIR=/app/cache/dev \
+    -e SQLX_OFFLINE=true \
     -v "$REPO_ROOT":/app \
     "${NAS_MOUNT[@]}" \
     -w /app \

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO thumbnails(caption_id, selected_frame) VALUES (?, ?)\n         ON CONFLICT(caption_id) DO UPDATE SET selected_frame = excluded.selected_frame",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "58e83c74d22ae4656334596b3b71b04130594e0e4d2e7850d0e26a2976189c4b"
+}

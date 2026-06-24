@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE ts_files SET status = 'pending', error_msg = NULL WHERE status = 'ingesting'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "7bd2d0ac166c86bddba568ecd19440eff071437a3e0ab764b60338d2fc5a1066"
+}

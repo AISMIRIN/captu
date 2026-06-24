@@ -7,7 +7,6 @@ use axum::{
     http::{header, StatusCode},
     response::{IntoResponse, Response},
 };
-use sqlx::Row;
 use tokio::sync::Mutex as AsyncMutex;
 
 use captu::media::capture::{self};
@@ -54,11 +53,11 @@ pub async fn thumb(
     // Record successful generation in thumbnails (default = middle frame).
     // OR IGNORE preserves any existing user-selected frame.
     let default_frame = state.config.capture.thumb_count as i64 / 2;
-    sqlx::query(
+    sqlx::query!(
         "INSERT OR IGNORE INTO thumbnails(caption_id, selected_frame) VALUES (?, ?)",
+        id,
+        default_frame,
     )
-    .bind(id)
-    .bind(default_frame)
     .execute(&state.pool)
     .await
     .map_err(|e| {
@@ -84,12 +83,13 @@ pub async fn select_frame(
     State(state): State<AppState>,
     Path((id, n)): Path<(i64, u32)>,
 ) -> StatusCode {
-    match sqlx::query(
+    let frame = n as i64;
+    match sqlx::query!(
         "INSERT INTO thumbnails(caption_id, selected_frame) VALUES (?, ?)
          ON CONFLICT(caption_id) DO UPDATE SET selected_frame = excluded.selected_frame",
+        id,
+        frame,
     )
-    .bind(id)
-    .bind(n as i64)
     .execute(&state.pool)
     .await
     {
@@ -192,13 +192,13 @@ async fn lookup_caption(
     state: &AppState,
     id: i64,
 ) -> Result<(PathBuf, i64, i64), StatusCode> {
-    let row = sqlx::query(
+    let row = sqlx::query!(
         "SELECT f.path, c.pts_start, c.pts_end \
          FROM captions c \
          JOIN ts_files f ON c.ts_file_id = f.id \
          WHERE c.id = ?",
+        id,
     )
-    .bind(id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|e| {
@@ -207,10 +207,7 @@ async fn lookup_caption(
     })?
     .ok_or(StatusCode::NOT_FOUND)?;
 
-    let path: String = row.get("path");
-    let pts_start: i64 = row.get("pts_start");
-    let pts_end: i64 = row.get("pts_end");
-    Ok((PathBuf::from(path), pts_start, pts_end))
+    Ok((PathBuf::from(row.path), row.pts_start, row.pts_end))
 }
 
 async fn serve_jpeg(path: PathBuf) -> Result<impl IntoResponse, StatusCode> {

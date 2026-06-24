@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO ts_files (path, filename, status) VALUES (?, ?, 'pending')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "3bd1033b63bfbafc7dde8e0b3124bbc98ecc7a45c04f8f8780f8ed7b62c720ec"
+}

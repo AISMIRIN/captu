@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM captions WHERE ts_file_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "f46d1a9ae5dda1057fd386ca19f0308656370d701e4ef15dd5515867010b0c47"
+}

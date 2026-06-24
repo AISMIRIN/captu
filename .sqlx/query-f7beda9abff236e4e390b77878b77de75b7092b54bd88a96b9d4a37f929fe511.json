@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE ts_files SET status = 'error', error_msg = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "f7beda9abff236e4e390b77878b77de75b7092b54bd88a96b9d4a37f929fe511"
+}

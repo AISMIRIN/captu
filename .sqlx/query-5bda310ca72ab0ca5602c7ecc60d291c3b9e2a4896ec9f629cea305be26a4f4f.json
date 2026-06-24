@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT status, COUNT(*) AS \"cnt!: i64\" FROM ts_files GROUP BY status",
+  "describe": {
+    "columns": [
+      {
+        "name": "status",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "cnt!: i64",
+        "ordinal": 1,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "5bda310ca72ab0ca5602c7ecc60d291c3b9e2a4896ec9f629cea305be26a4f4f"
+}

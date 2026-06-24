@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT episode_number, episode_title, air_date\n         FROM ts_files\n         WHERE program_id = ? AND status = 'done'\n           AND EXISTS (SELECT 1 FROM captions c WHERE c.ts_file_id = ts_files.id)\n         ORDER BY episode_number, air_date",
+  "describe": {
+    "columns": [
+      {
+        "name": "episode_number",
+        "ordinal": 0,
+        "type_info": "Int64"
+      },
+      {
+        "name": "episode_title",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "air_date",
+        "ordinal": 2,
+        "type_info": "Date"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "b78ba4d3177e7c73e7d4efa69a174de30c3fe7e91b4f8042e78efac23e060654"
+}

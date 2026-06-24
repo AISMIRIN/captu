@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT episode_title AS \"episode_title!\",\n                      MIN(air_date) AS \"air_date: String\"\n             FROM ts_files\n             WHERE program_id = ? AND status = 'done' AND episode_title IS NOT NULL\n               AND EXISTS (SELECT 1 FROM captions c WHERE c.ts_file_id = ts_files.id)\n             GROUP BY episode_title\n             ORDER BY air_date",
+  "describe": {
+    "columns": [
+      {
+        "name": "episode_title!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "air_date: String",
+        "ordinal": 1,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      null
+    ]
+  },
+  "hash": "fcce68ba965d491cf2873c28395edd5e6d5f250dbce2656dd9aa9bda0b0c254f"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM tags WHERE caption_id = ? AND tag = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "e5a40234cfb85991cdfa60b107b20b27bad76464adb8e41806a54a600f486242"
+}

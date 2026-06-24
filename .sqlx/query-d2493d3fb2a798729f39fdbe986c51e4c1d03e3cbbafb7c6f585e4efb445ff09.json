@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT title FROM programs WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "title",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d2493d3fb2a798729f39fdbe986c51e4c1d03e3cbbafb7c6f585e4efb445ff09"
+}

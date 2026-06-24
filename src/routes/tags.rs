@@ -6,18 +6,20 @@ use axum::{
     response::IntoResponse,
 };
 use serde::Deserialize;
-use sqlx::{Row, SqlitePool};
+use sqlx::SqlitePool;
 
 use super::AppState;
 
 /// Fetch all tags for a caption, ordered alphabetically.
 pub(crate) async fn load_tags(pool: &SqlitePool, caption_id: i64) -> Result<Vec<String>> {
-    let rows = sqlx::query("SELECT tag FROM tags WHERE caption_id = ? ORDER BY tag")
-        .bind(caption_id)
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query!(
+        "SELECT tag FROM tags WHERE caption_id = ? ORDER BY tag",
+        caption_id,
+    )
+    .fetch_all(pool)
+    .await?;
 
-    Ok(rows.iter().map(|r| r.get::<String, _>("tag")).collect())
+    Ok(rows.into_iter().map(|r| r.tag).collect())
 }
 
 #[derive(Deserialize)]
@@ -59,15 +61,17 @@ pub async fn add_tag(
     let tag = form.tag.trim().to_string();
 
     if !tag.is_empty() {
-        sqlx::query("INSERT OR IGNORE INTO tags(caption_id, tag) VALUES (?, ?)")
-            .bind(id)
-            .bind(&tag)
-            .execute(&state.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("add_tag {}/{:?}: {:#}", id, tag, e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+        sqlx::query!(
+            "INSERT OR IGNORE INTO tags(caption_id, tag) VALUES (?, ?)",
+            id,
+            tag,
+        )
+        .execute(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("add_tag {}/{:?}: {:#}", id, tag, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     }
 
     let tags = load_tags(&state.pool, id).await.map_err(|e| {
@@ -86,15 +90,17 @@ pub async fn delete_tag(
 ) -> Result<impl IntoResponse, StatusCode> {
     let tag = form.tag.trim().to_string();
 
-    sqlx::query("DELETE FROM tags WHERE caption_id = ? AND tag = ?")
-        .bind(id)
-        .bind(&tag)
-        .execute(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("delete_tag {}/{:?}: {:#}", id, tag, e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    sqlx::query!(
+        "DELETE FROM tags WHERE caption_id = ? AND tag = ?",
+        id,
+        tag,
+    )
+    .execute(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("delete_tag {}/{:?}: {:#}", id, tag, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let tags = load_tags(&state.pool, id).await.map_err(|e| {
         tracing::error!("load_tags after delete {}: {:#}", id, e);
@@ -106,7 +112,7 @@ pub async fn delete_tag(
 
 /// GET /api/tags — list all distinct tags for autocomplete and filter select.
 pub async fn tag_options(State(state): State<AppState>) -> Result<TagOptionsTemplate, StatusCode> {
-    let rows = sqlx::query("SELECT DISTINCT tag FROM tags ORDER BY tag")
+    let rows = sqlx::query!("SELECT DISTINCT tag FROM tags ORDER BY tag")
         .fetch_all(&state.pool)
         .await
         .map_err(|e| {
@@ -114,7 +120,7 @@ pub async fn tag_options(State(state): State<AppState>) -> Result<TagOptionsTemp
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    let tags = rows.iter().map(|r| r.get::<String, _>("tag")).collect();
+    let tags = rows.into_iter().map(|r| r.tag).collect();
 
     Ok(TagOptionsTemplate { tags })
 }

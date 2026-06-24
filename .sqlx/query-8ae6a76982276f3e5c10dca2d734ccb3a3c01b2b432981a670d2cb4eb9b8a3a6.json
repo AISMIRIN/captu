@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE ts_files SET status = 'ingesting'\n             WHERE id = (SELECT id FROM ts_files WHERE status = 'pending' LIMIT 1)\n               AND status = 'pending'\n             RETURNING id AS \"id!: i64\", path AS \"path!: String\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Int64"
+      },
+      {
+        "name": "path!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "8ae6a76982276f3e5c10dca2d734ccb3a3c01b2b432981a670d2cb4eb9b8a3a6"
+}

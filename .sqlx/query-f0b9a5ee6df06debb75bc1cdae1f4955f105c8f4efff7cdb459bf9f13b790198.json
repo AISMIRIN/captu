@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE ts_files\n         SET status = 'done', ingested_at = ?, program_id = ?,\n             episode_number = ?, episode_title = ?, air_date = ?\n         WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "f0b9a5ee6df06debb75bc1cdae1f4955f105c8f4efff7cdb459bf9f13b790198"
+}

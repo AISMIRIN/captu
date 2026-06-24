@@ -5,7 +5,7 @@ use axum::{
     http::StatusCode,
 };
 use serde::{Deserialize, Deserializer};
-use sqlx::Row;
+use sqlx::{QueryBuilder, Row, Sqlite};
 use std::collections::HashMap;
 
 use super::{display_title, like_escape, AppState};
@@ -117,27 +117,27 @@ pub struct SearchParams {
 pub async fn index(State(state): State<AppState>) -> Result<IndexTemplate, StatusCode> {
     // Only include programs that have at least one caption, so that programs
     // whose subtitles were cleared via "字幕を消す" don't appear in the selector.
-    let rows = sqlx::query(
-        "SELECT id, title FROM programs p \
-         WHERE EXISTS ( \
-             SELECT 1 FROM ts_files f \
-             JOIN captions c ON c.ts_file_id = f.id \
-             WHERE f.program_id = p.id \
-         ) \
-         ORDER BY title",
+    let rows = sqlx::query!(
+        r#"SELECT id AS "id!: i64", title FROM programs p
+         WHERE EXISTS (
+             SELECT 1 FROM ts_files f
+             JOIN captions c ON c.ts_file_id = f.id
+             WHERE f.program_id = p.id
+         )
+         ORDER BY title"#,
     )
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("index programs query: {:#}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("index programs query: {:#}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let programs = rows
-        .iter()
+        .into_iter()
         .map(|r| ProgramItem {
-            id: r.get("id"),
-            title: r.get("title"),
+            id: r.id,
+            title: r.title,
         })
         .collect();
 
@@ -219,7 +219,7 @@ async fn run_search(
 ) -> Result<(Vec<SearchResult>, i64)> {
     let sub_trim = params.sub.as_deref().unwrap_or("").trim();
 
-    // Pre-compute escaped LIKE patterns.
+    // Pre-compute escaped LIKE patterns (owned Strings so they outlive the query builders).
     let bind_text: Option<String> = q.map(|t| format!("%{}%", like_escape(t)));
     let bind_sub: Option<String> = if !sub_trim.is_empty() {
         Some(format!("%{}%", like_escape(sub_trim)))
@@ -227,71 +227,26 @@ async fn run_search(
         None
     };
 
-    // Build WHERE conditions (filter conditions use subqueries, no extra binds).
-    let mut conditions: Vec<String> = Vec::new();
-
-    if bind_text.is_some() {
-        conditions.push("c.text LIKE ? ESCAPE '\\'".into());
-    }
-    if params.program_id.is_some() {
-        conditions.push("f.program_id = ?".into());
-    }
-    if params.ep.is_some() {
-        conditions.push("f.episode_number = ?".into());
-    }
-    if bind_sub.is_some() {
-        conditions.push("f.episode_title LIKE ? ESCAPE '\\'".into());
-    }
-    if params.date_from.is_some() {
-        conditions.push("f.air_date >= ?".into());
-    }
-    if params.date_to.is_some() {
-        conditions.push("f.air_date <= ?".into());
-    }
-    // Each tag in tag_list adds an independent EXISTS condition (AND semantics).
-    for _ in tag_list {
-        conditions.push(
-            "EXISTS(SELECT 1 FROM tags tg WHERE tg.caption_id = c.id AND tg.tag = ?)".into(),
-        );
-    }
-    match filter {
-        "generated" => {
-            conditions.push(
-                "EXISTS(SELECT 1 FROM thumbnails th WHERE th.caption_id = c.id)".into(),
-            );
-        }
-        "pending" => {
-            conditions.push(
-                "NOT EXISTS(SELECT 1 FROM thumbnails th WHERE th.caption_id = c.id)".into(),
-            );
-        }
-        _ => {}
-    }
-
-    let where_clause = if conditions.is_empty() {
-        String::new()
-    } else {
-        format!("WHERE {}", conditions.join(" AND "))
-    };
-
     // ── COUNT query ──────────────────────────────────────────────────────────
-    let count_sql = format!(
-        "SELECT COUNT(*) FROM captions c \
-         JOIN ts_files f ON c.ts_file_id = f.id \
-         LEFT JOIN programs p ON f.program_id = p.id \
-         {where_clause}"
-    );
-
-    let mut cq = sqlx::query_scalar::<_, i64>(&count_sql);
-    if let Some(ref t) = bind_text  { cq = cq.bind(t.as_str()); }
-    if let Some(pid) = params.program_id { cq = cq.bind(pid); }
-    if let Some(ep)  = params.ep    { cq = cq.bind(ep); }
-    if let Some(ref s) = bind_sub   { cq = cq.bind(s.as_str()); }
-    if let Some(ref d) = params.date_from { cq = cq.bind(d.as_str()); }
-    if let Some(ref d) = params.date_to   { cq = cq.bind(d.as_str()); }
-    for t in tag_list { cq = cq.bind(*t); }
-
-    let total: i64 = cq.fetch_one(&state.pool).await?;
+    let total: i64 = {
+        let mut qb = QueryBuilder::<Sqlite>::new(
+            "SELECT COUNT(*) FROM captions c \
+             JOIN ts_files f ON c.ts_file_id = f.id \
+             LEFT JOIN programs p ON f.program_id = p.id",
+        );
+        push_search_where(
+            &mut qb,
+            bind_text.as_deref(),
+            params.program_id,
+            params.ep,
+            bind_sub.as_deref(),
+            params.date_from.as_deref(),
+            params.date_to.as_deref(),
+            tag_list,
+            filter,
+        );
+        qb.build_query_scalar().fetch_one(&state.pool).await?
+    };
 
     if total == 0 {
         return Ok((vec![], 0));
@@ -299,41 +254,47 @@ async fn run_search(
 
     // ── Main query ───────────────────────────────────────────────────────────
     // COALESCE bind (rep_frame) must come BEFORE the WHERE binds.
-    let main_sql = format!(
-        r#"SELECT
-            c.id         AS caption_id,
-            c.text,
-            c.pts_start  AS pts_start_ms,
-            c.pts_end    AS pts_end_ms,
-            f.air_date,
-            f.episode_number,
-            f.episode_title,
-            COALESCE(p.title, f.filename) AS title,
-            CASE WHEN t.caption_id IS NOT NULL THEN 1 ELSE 0 END AS has_thumb,
-            COALESCE(t.selected_frame, ?) AS preview_frame
-        FROM captions c
-        JOIN ts_files  f ON c.ts_file_id = f.id
-        LEFT JOIN programs  p ON f.program_id = p.id
-        LEFT JOIN thumbnails t ON t.caption_id = c.id
-        {where_clause}
-        ORDER BY f.air_date DESC, f.episode_number, c.pts_start
-        LIMIT ? OFFSET ?"#
-    );
-
     let (_, _, offset) = page_window(page, total);
 
-    let mut mq = sqlx::query(&main_sql);
-    mq = mq.bind(rep_frame);                             // COALESCE fallback
-    if let Some(ref t) = bind_text  { mq = mq.bind(t.as_str()); }
-    if let Some(pid) = params.program_id { mq = mq.bind(pid); }
-    if let Some(ep)  = params.ep    { mq = mq.bind(ep); }
-    if let Some(ref s) = bind_sub   { mq = mq.bind(s.as_str()); }
-    if let Some(ref d) = params.date_from { mq = mq.bind(d.as_str()); }
-    if let Some(ref d) = params.date_to   { mq = mq.bind(d.as_str()); }
-    for t in tag_list { mq = mq.bind(*t); }
-    mq = mq.bind(PAGE_SIZE).bind(offset);
-
-    let rows = mq.fetch_all(&state.pool).await?;
+    let rows = {
+        let mut qb = QueryBuilder::<Sqlite>::new(
+            "SELECT \
+                c.id         AS caption_id, \
+                c.text, \
+                c.pts_start  AS pts_start_ms, \
+                c.pts_end    AS pts_end_ms, \
+                f.air_date, \
+                f.episode_number, \
+                f.episode_title, \
+                COALESCE(p.title, f.filename) AS title, \
+                CASE WHEN t.caption_id IS NOT NULL THEN 1 ELSE 0 END AS has_thumb, \
+                COALESCE(t.selected_frame, ",
+        );
+        qb.push_bind(rep_frame);
+        qb.push(
+            ") AS preview_frame \
+             FROM captions c \
+             JOIN ts_files  f ON c.ts_file_id = f.id \
+             LEFT JOIN programs  p ON f.program_id = p.id \
+             LEFT JOIN thumbnails t ON t.caption_id = c.id",
+        );
+        push_search_where(
+            &mut qb,
+            bind_text.as_deref(),
+            params.program_id,
+            params.ep,
+            bind_sub.as_deref(),
+            params.date_from.as_deref(),
+            params.date_to.as_deref(),
+            tag_list,
+            filter,
+        );
+        qb.push(" ORDER BY f.air_date DESC, f.episode_number, c.pts_start LIMIT ");
+        qb.push_bind(PAGE_SIZE);
+        qb.push(" OFFSET ");
+        qb.push_bind(offset);
+        qb.build().fetch_all(&state.pool).await?
+    };
 
     let mut results: Vec<SearchResult> = rows
         .iter()
@@ -363,14 +324,18 @@ async fn run_search(
         .collect();
 
     // Bulk-load tags for the current page of results (single query, no N+1).
-    // IDs are i64 literals — no user input involved, so inline formatting is safe.
+    // IDs are i64 literals — no user input involved, so QueryBuilder with push_bind is safe.
     if !results.is_empty() {
-        let id_list: Vec<String> = results.iter().map(|r| r.id.to_string()).collect();
-        let tags_sql = format!(
-            "SELECT caption_id, tag FROM tags WHERE caption_id IN ({}) ORDER BY tag",
-            id_list.join(",")
+        let mut tq = QueryBuilder::<Sqlite>::new(
+            "SELECT caption_id, tag FROM tags WHERE caption_id IN (",
         );
-        let tag_rows = sqlx::query(&tags_sql).fetch_all(&state.pool).await?;
+        let mut sep = tq.separated(", ");
+        for r in &results {
+            sep.push_bind(r.id);
+        }
+        tq.push(") ORDER BY tag");
+        let tag_rows = tq.build().fetch_all(&state.pool).await?;
+
         let mut tags_map: HashMap<i64, Vec<String>> = HashMap::new();
         for row in &tag_rows {
             tags_map
@@ -384,6 +349,81 @@ async fn run_search(
     }
 
     Ok((results, total))
+}
+
+/// Append a WHERE clause to a QueryBuilder for search queries.
+///
+/// All conditions are collected here so that the SQL and its bound values are
+/// always in sync — no risk of a mismatch from a manually maintained parallel
+/// conditions-list + bind-chain.
+fn push_search_where(
+    qb: &mut QueryBuilder<Sqlite>,
+    bind_text: Option<&str>,
+    program_id: Option<i64>,
+    ep: Option<i64>,
+    bind_sub: Option<&str>,
+    date_from: Option<&str>,
+    date_to: Option<&str>,
+    tag_list: &[&str],
+    filter: &str,
+) {
+    let mut n = 0usize;
+
+    // Prepend WHERE / AND depending on whether this is the first condition.
+    macro_rules! cond {
+        ($qb:expr, $n:ident) => {{
+            if $n == 0 {
+                $qb.push(" WHERE ");
+            } else {
+                $qb.push(" AND ");
+            }
+            $n += 1;
+        }};
+    }
+
+    if let Some(t) = bind_text {
+        cond!(qb, n);
+        qb.push("c.text LIKE ").push_bind(t.to_owned()).push(" ESCAPE '\\'");
+    }
+    if let Some(pid) = program_id {
+        cond!(qb, n);
+        qb.push("f.program_id = ").push_bind(pid);
+    }
+    if let Some(ep_num) = ep {
+        cond!(qb, n);
+        qb.push("f.episode_number = ").push_bind(ep_num);
+    }
+    if let Some(s) = bind_sub {
+        cond!(qb, n);
+        qb.push("f.episode_title LIKE ").push_bind(s.to_owned()).push(" ESCAPE '\\'");
+    }
+    if let Some(d) = date_from {
+        cond!(qb, n);
+        qb.push("f.air_date >= ").push_bind(d.to_owned());
+    }
+    if let Some(d) = date_to {
+        cond!(qb, n);
+        qb.push("f.air_date <= ").push_bind(d.to_owned());
+    }
+    for &tag in tag_list {
+        cond!(qb, n);
+        qb.push("EXISTS(SELECT 1 FROM tags tg WHERE tg.caption_id = c.id AND tg.tag = ")
+            .push_bind(tag.to_owned())
+            .push(")");
+    }
+    match filter {
+        "generated" => {
+            cond!(qb, n);
+            qb.push("EXISTS(SELECT 1 FROM thumbnails th WHERE th.caption_id = c.id)");
+        }
+        "pending" => {
+            cond!(qb, n);
+            qb.push("NOT EXISTS(SELECT 1 FROM thumbnails th WHERE th.caption_id = c.id)");
+        }
+        _ => {}
+    }
+    // Silence unused_assignments: n is a write-only counter after the last condition.
+    let _ = n;
 }
 
 #[cfg(test)]

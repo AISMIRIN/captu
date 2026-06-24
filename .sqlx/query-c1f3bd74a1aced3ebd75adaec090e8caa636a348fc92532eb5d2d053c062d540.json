@@ -1,0 +1,80 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT f.id AS \"id!: i64\", f.filename, f.path, f.status, f.error_msg, f.ingested_at,\n                f.episode_number, f.episode_title, f.air_date,\n                COALESCE(p.title, f.filename) AS \"title!: String\",\n                (SELECT COUNT(*) FROM captions c WHERE c.ts_file_id = f.id) AS \"caption_count!: i64\"\n         FROM ts_files f LEFT JOIN programs p ON f.program_id = p.id\n         WHERE f.id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Int64"
+      },
+      {
+        "name": "filename",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "path",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "status",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "error_msg",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "ingested_at",
+        "ordinal": 5,
+        "type_info": "Datetime"
+      },
+      {
+        "name": "episode_number",
+        "ordinal": 6,
+        "type_info": "Int64"
+      },
+      {
+        "name": "episode_title",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "air_date",
+        "ordinal": 8,
+        "type_info": "Date"
+      },
+      {
+        "name": "title!: String",
+        "ordinal": 9,
+        "type_info": "Null"
+      },
+      {
+        "name": "caption_count!: i64",
+        "ordinal": 10,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "c1f3bd74a1aced3ebd75adaec090e8caa636a348fc92532eb5d2d053c062d540"
+}
