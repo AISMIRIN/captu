@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # Rust crates (workspace root)
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+
+  # GitHub Actions used in .github/workflows/
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Docker base images in docker/Dockerfile
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

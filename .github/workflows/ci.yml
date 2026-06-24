@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: fmt / clippy / test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive  # required: crates/aribcaption-sys/vendor/libaribcaption
+
+      # C++ build deps — matches docker/Dockerfile builder-base
+      - name: Install system deps
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev \
+            cmake clang libclang-dev g++ \
+            libfreetype6-dev libfontconfig1-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
