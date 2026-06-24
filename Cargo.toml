@@ -53,7 +53,7 @@ aribcaption = { path = "crates/aribcaption" }
 # Utilities
 glob = "0.3"
 png = "0.17"
-bincode = "1"
+bincode = "3"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
