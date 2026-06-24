@@ -9,24 +9,31 @@
 
 ```
 src/
-├── main.rs          # axumサーバ、起動時スキャン
+├── main.rs          # axumサーバ、起動時スキャン、ルータ組み立て
+├── lib.rs           # クレートルート (モジュール宣言)
 ├── config.rs        # config.toml 読み込み
 ├── db.rs            # SQLiteスキーマ・接続プール
 ├── ingest.rs        # TSスキャン・取り込みオーケストレーション
+├── scheduler.rs     # 定期スキャン (tokio-cron-scheduler, IngestGuard)
 ├── ts/
+│   ├── mod.rs
 │   ├── b24.rs       # ARIB STD-B24テキストコーデック (decode_arib_b24) — EPG専用pure-Rust
 │   ├── epg.rs       # EIT/EPGパーサ → EpgInfo
 │   ├── pes.rs       # ARIB字幕PESデマクサ (find_caption_pid, demux_caption_pes)
 │   └── subtitle.rs  # aribcaption FFI字幕抽出・on-demand PNG描画
 │                    #   Caption { pts_start_ms, pts_end_ms, text }
 ├── media/
+│   ├── mod.rs
 │   └── capture.rs   # ffmpeg 単一パスサムネ生成 (stock ffmpeg)
 │                    #   scale → select → 字幕PNGオーバーレイ → JPEG (1コマンド)
 ├── routes/
+│   ├── mod.rs       # AppState, display_title(), fmt_ms(), like_escape()
 │   ├── search.rs    # GET /, GET /search
 │   ├── contact.rs   # GET /contact/:id (コンタクトシート)
-│   ├── capture.rs   # GET /thumb/:id/:n
-│   └── ingest.rs    # GET /ingest/status (取り込み状況)
+│   ├── capture.rs   # GET /thumb/:id/:n, GET /full/:id/:n, POST /select/:id/:n
+│   ├── episodes.rs  # GET /api/episodes
+│   ├── tags.rs      # POST /caption/:id/tags, DELETE, GET /api/tags
+│   └── ingest.rs    # GET /ingest/status, POST /reingest/:id
 └── bin/
     ├── extract.rs    # 診断CLI: TSから字幕/EPGをダンプ
     └── ingest_cli.rs # 本番CLI: スキャン・再取り込み
@@ -54,7 +61,9 @@ cache/{ts_stem}/
   captions.pes           # ARIB字幕PESブロブ (取り込み時に保存)
   sub/{caption_id}.png   # 字幕PNG (on-demand描画、初回アクセス時に生成)
   thumbs/
-    {caption_id}_{n:02}.jpg  # コンタクトシートJPEG (コンタクトシート表示時に生成)
+    {caption_id}_{n:02}.jpg  # コンタクトシートJPEG (縮小表示用、初回アクセス時に生成)
+  full/
+    {caption_id}_{n:02}.jpg  # フル解像度JPEG (DL/共有用、初回アクセス時に生成)
 ```
 
 ## 技術規約

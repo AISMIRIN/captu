@@ -19,9 +19,11 @@
 captu/
 ├── src/
 │   ├── main.rs        # axumサーバ
+│   ├── lib.rs         # クレートルート
 │   ├── config.rs      # 設定
 │   ├── db.rs          # SQLiteスキーマ・接続プール
 │   ├── ingest.rs      # TSスキャン・取り込みオーケストレーション
+│   ├── scheduler.rs   # 定期スキャン (tokio-cron-scheduler)
 │   ├── ts/            # TSパース層
 │   │   ├── b24.rs     # ARIB STD-B24テキストコーデック
 │   │   ├── epg.rs     # EIT/EPGパーサ
@@ -87,8 +89,8 @@ docker compose up --build -d
 |---|---|
 | `paths.nas_mount` | 録画ディレクトリのコンテナ内パス |
 | `paths.ts_glob` | TSファイルの検索パターン |
-| `capture.width/height` | サムネ解像度 (地上波: 1920×1080) |
-| `capture.thumb_width/height` | コンタクトシート解像度 |
+| `capture.width/height` | フル解像度DL/共有用JPEG解像度 (地上波: 1920×1080) |
+| `capture.thumb_width/height` | コンタクトシート表示用縮小解像度 (デフォルト: 640×360) |
 | `capture.thumb_count` | コンタクトシートのサムネ枚数 |
 | `ingest.concurrency` | 並列取り込みワーカー数 |
 
@@ -114,7 +116,9 @@ cache/{ts_stem}/
   captions.pes           # ARIB字幕PESブロブ (取り込み時に保存)
   sub/{caption_id}.png   # 字幕PNG (on-demand描画、初回アクセス時に生成)
   thumbs/
-    {caption_id}_{n:02}.jpg  # コンタクトシートJPEG (コンタクトシート表示時に生成)
+    {caption_id}_{n:02}.jpg  # コンタクトシートJPEG (縮小表示用、初回アクセス時に生成)
+  full/
+    {caption_id}_{n:02}.jpg  # フル解像度JPEG (DL/共有用、初回アクセス時に生成)
 ```
 
 ## ライセンス
@@ -123,6 +127,6 @@ cache/{ts_stem}/
 |---|---|
 | 本体コード | MIT (`LICENSE`) |
 | libaribcaption (submodule) | MIT (`crates/aribcaption-sys/vendor/libaribcaption/LICENSE`) |
-| Rounded M+ 1m for ARIB (フォント) | 自家製 Rounded M+ ライセンス (`assets/fonts/Readme.txt`) |
+| Rounded M+ 1m for ARIB (フォント) | 自家製 Rounded M+ ライセンス (`docker/assets/fonts/Readme.txt`) |
 
 フォント入手元: https://www.axfc.net/u/3107925

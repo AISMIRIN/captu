@@ -28,23 +28,28 @@
 captu/
 ├── src/
 │   ├── main.rs                    # エントリーポイント・axumルータ組み立て
+│   ├── lib.rs                     # クレートルート (モジュール宣言)
 │   ├── config.rs                  # 設定構造体・config.toml読み込み
 │   ├── db.rs                      # SQLiteスキーマ初期化・接続プール
 │   ├── ingest.rs                  # TSスキャン・取り込みオーケストレーション
+│   ├── scheduler.rs               # 定期スキャン (tokio-cron-scheduler, IngestGuard)
 │   ├── ts/                        # TSパース層
+│   │   ├── mod.rs
 │   │   ├── b24.rs                 # ARIB STD-B24テキストコーデック
 │   │   ├── epg.rs                 # EIT/EPGパーサ → EpgInfo
 │   │   ├── pes.rs                 # ARIB字幕PESデマクサ
 │   │   └── subtitle.rs            # libaribcaption FFI経由の字幕抽出・on-demand PNG描画
 │   ├── media/
-│   │   └── capture.rs             # ffmpeg 単一パスサムネ生成
+│   │   ├── mod.rs
+│   │   └── capture.rs             # ffmpeg 単一パスサムネ生成 (コンタクトシート / フル解像度)
 │   └── routes/
-│       ├── mod.rs                 # AppState, display_title(), like_escape()
+│       ├── mod.rs                 # AppState, display_title(), fmt_ms(), like_escape()
 │       ├── search.rs              # GET / , GET /search
 │       ├── contact.rs             # GET /contact/:id
-│       ├── capture.rs             # GET /thumb/:id/:n , POST /select/:id/:n
+│       ├── capture.rs             # GET /thumb/:id/:n , GET /full/:id/:n , POST /select/:id/:n
 │       ├── episodes.rs            # GET /api/episodes
-│       └── ingest.rs              # GET /ingest/status (取り込み状況) , POST /reingest/:id
+│       ├── tags.rs                # POST /caption/:id/tags , POST /caption/:id/tags/delete , GET /api/tags
+│       └── ingest.rs              # GET /ingest/status , POST /reingest/:id
 │
 ├── ui/
 │   ├── templates/                 # askamaテンプレート (コンパイル時検証, askama.toml で root 宣言)
@@ -58,15 +63,17 @@ captu/
 │
 ├── docker/
 │   ├── assets/fonts/              # ARIB字幕用 Rounded M+ フォント
-│   └── Dockerfile                 # マルチターゲット (builder-base / builder / dev / runtime
+│   └── Dockerfile                 # マルチターゲット (builder-base / builder / dev / runtime)
 │
 ├── cache/                         # volume
 │   └── {ts_stem}/
 │       ├── captions.pes           # PESブロブ (取り込み時に保存)
 │       ├── sub/
 │       │   └── {caption_id}.png   # 字幕PNG (on-demand描画・キャッシュ)
-│       └── thumbs/
-│           └── {caption_id}_{n:02}.jpg
+│       ├── thumbs/
+│       │   └── {caption_id}_{n:02}.jpg  # コンタクトシートJPEG (縮小表示用)
+│       └── full/
+│           └── {caption_id}_{n:02}.jpg  # フル解像度JPEG (DL/共有用、on-demand)
 │
 ├── data/
 │   └── captions.db                # volume
@@ -96,6 +103,7 @@ scripts/dev.sh build
 - テンプレート: askama (コンパイル時検証)
 - DB: sqlx 0.7 (sqlite + chrono features)
 - ARIB字幕: `aribcaption-sys` (ワークスペースメンバー, libaribcaptionのFFIラッパー)
+- スケジューラ: tokio-cron-scheduler (6フィールドcron、秒単位指定)
 - その他: serde, toml, glob, png, bincode, encoding_rs, unicode-normalization, tracing
 
 ### テスト実行
@@ -119,13 +127,18 @@ pub struct PathsConfig {
 
 pub struct CaptureConfig {
     pub thumb_count: u32,    // コンタクトシートのサムネ枚数 (デフォルト: 6)
-    pub width: u32,          // 出力幅 (地デジ 1440x1080 → 1920x1080)
-    pub height: u32,
-    pub jpeg_quality: u32,   // ffmpeg -q:v 値 (2 = 高品質)
+    // --- コンタクトシートグリッド / プレビュー表示用 (縮小) ---
+    pub thumb_width: u32,    // コンタクトシート表示幅 (デフォルト: 640)
+    pub thumb_height: u32,   // コンタクトシート表示高さ (デフォルト: 360)
+    pub thumb_quality: u32,  // サムネ用 ffmpeg -q:v 値 (デフォルト: 4)
+    // --- DL/共有用フル解像度 ---
+    pub width: u32,          // フル解像度出力幅 (地デジ 1440x1080 → 1920x1080)
+    pub height: u32,         // フル解像度出力高さ
+    pub jpeg_quality: u32,   // フル解像度用 ffmpeg -q:v 値 (2 = 高品質)
 }
 
 pub struct IngestConfig {
-    pub schedule_cron: String,        // cron式 (現在未配線 → plans/phase5-scheduler.md)
+    pub schedule_cron: String,        // 6フィールドcron（秒付き）。空文字で定期スキャン無効
     pub run_on_startup: bool,         // 起動時スキャン
     pub concurrency: u32,             // 並列取り込みワーカー数 (推奨: 2-4)
     pub require_captions: bool,       // 字幕PIDなしTSをスキップするか
@@ -229,7 +242,11 @@ pending → ingesting → done
 ### タイミング
 
 1. **起動時スキャン** (`run_on_startup = true`)
-2. **定期スキャン**: `schedule_cron` フィールドはあるが**現在未配線**（`plans/phase5-scheduler.md` 参照）
+2. **定期スキャン**: `schedule_cron`（6フィールドcron、秒付き）で周期実行。
+   `scheduler::start()` が `tokio-cron-scheduler` ベースのジョブを起動。
+   起動時スキャンと共有の `IngestGuard`（`Arc<Mutex<()>>`）で排他制御し、
+   前のスキャンが終わっていない tick は `try_lock` で自動スキップ。
+   `schedule_cron = ""` で定期スキャンを無効化できる。
 
 
 
@@ -317,6 +334,19 @@ ffmpeg -y -ss {pre_seek} -t {dur} -i file:{ts} [-i {sub.png}]
 - フレーム選択は `select='eq(n,{frame_num})+...'`（地上波 29.97fps 前提）
 - 字幕PNG（`cache/{stem}/sub/{caption_id}.png`）は on-demand 描画・キャッシュ。取り込み時に保存した PES ブロブから libaribcaption で生成（`subtitle.rs::ensure_caption_png`）
 
+### フル解像度JPEG生成 (`ensure_full`)
+
+`GET /full/:id/:n` からトリガーされる単一フレーム取得。
+コンタクトシートと同一の ffmpeg シーク戦略だが、解像度とクオリティが異なる。
+
+```
+ffmpeg -y -ss {pre_seek} -t {dur} -i file:{ts} [-i {sub.png}]
+       -vf  "scale={cfg.width}:{cfg.height},setsar=1,select='eq(n,X)',setpts=N/FRAME_RATE/TB"
+       -fps_mode vfr -q:v {cfg.jpeg_quality} cache/{stem}/full/{id}_{n:02}.jpg
+```
+
+出力: `cache/{stem}/full/{caption_id}_{n:02}.jpg`（DL/共有用、初回アクセス時に生成・キャッシュ）
+
 ---
 
 ## API仕様
@@ -346,9 +376,15 @@ q・フィルタ・filter が全て未指定の場合は空結果を返す。
 サムネは非同期生成（ページ表示後に各 `GET /thumb` リクエストで生成）。
 
 ### GET /thumb/:id/:n
-サムネ JPEG 配信。キャッシュがなければ生成してから返す。
+コンタクトシート用縮小JPEG配信（`cfg.thumb_width × cfg.thumb_height`）。
+キャッシュがなければ生成してから返す。
 同一 caption への並列リクエストはロック制御（1本のみ ffmpeg を実行、後続はキャッシュヒット）。
 初回生成成功時に `thumbnails(caption_id, default_frame)` を INSERT OR IGNORE。
+
+### GET /full/:id/:n
+フル解像度JPEG配信（`cfg.width × cfg.height`）。DL・Web Share・クリップボードコピー用。
+`/thumb` と同じ per-caption ロック制御。キャッシュ済みならそのまま返す。
+`cache/{stem}/full/{id}_{n:02}.jpg` に保存。
 
 ### POST /select/:id/:n
 ユーザーが選んだフレーム番号を永続化。
@@ -405,7 +441,7 @@ q・フィルタ・filter が全て未指定の場合は空結果を返す。
 
 ```javascript
 async function handleJpeg(captionId, frameN) {
-    const res = await fetch(`/thumb/${captionId}/${frameN}`);
+    const res = await fetch(`/full/${captionId}/${frameN}`);
     const blob = await res.blob();
 
     if (window.isSecureContext && navigator.share && navigator.canShare) {
