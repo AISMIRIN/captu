@@ -22,7 +22,7 @@ path = "src/bin/ingest_cli.rs"
 axum = { version = "0.7", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.4"
-tower-http = { version = "0.5", features = ["fs", "trace"] }
+tower-http = { version = "0.6", features = ["fs", "trace"] }
 
 # Template (compile-time validation)
 askama = "0.12"
