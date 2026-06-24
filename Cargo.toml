@@ -26,7 +26,7 @@ tower-http = { version = "0.5", features = ["fs", "trace"] }
 
 # Template (compile-time validation)
 askama = "0.12"
-askama_axum = "0.4"
+askama_axum = "0.5"
 
 # DB (compile-time query validation)
 sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite", "chrono", "macros", "migrate"] }
