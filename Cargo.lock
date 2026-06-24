@@ -72,11 +72,24 @@ version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b79091df18a97caea757e28cd2d5fda49c6cd4bd01ddffd7ff01ace0c0ad2c28"
 dependencies = [
- "askama_derive",
+ "askama_derive 0.12.5",
  "askama_escape",
  "humansize",
  "num-traits",
  "percent-encoding",
+]
+
+[[package]]
+name = "askama"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1bf825125edd887a019d0a3a837dcc5499a68b0d034cc3eb594070c3e18addc"
+dependencies = [
+ "askama_macros",
+ "itoa",
+ "percent-encoding",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -85,7 +98,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a41603f7cdbf5ac4af60760f17253eb6adf6ec5b6f14a7ed830cf687d375f163"
 dependencies = [
- "askama",
+ "askama 0.12.1",
  "axum-core",
  "http",
 ]
@@ -96,7 +109,7 @@ version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19fe8d6cb13c4714962c072ea496f3392015f0989b1a2847bb4b2d9effd71d83"
 dependencies = [
- "askama_parser",
+ "askama_parser 0.2.1",
  "basic-toml",
  "mime",
  "mime_guess",
@@ -107,10 +120,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "askama_derive"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1c7065972a130eafa84215f21352ae15b4a7393da48c1f5e103904490736738"
+dependencies = [
+ "askama_parser 0.16.0",
+ "basic-toml",
+ "glob",
+ "memchr",
+ "proc-macro2",
+ "quote",
+ "rustc-hash 2.1.2",
+ "serde",
+ "serde_derive",
+ "syn 2.0.118",
+]
+
+[[package]]
 name = "askama_escape"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "619743e34b5ba4e9703bba34deac3427c72507c7159f5fd030aea8cac0cfe341"
+
+[[package]]
+name = "askama_macros"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e23b1d2c4bd39a41971f6124cef4cc6fd0540913ecb90919b69ab3bbe44ae1a"
+dependencies = [
+ "askama_derive 0.16.0",
+]
 
 [[package]]
 name = "askama_parser"
@@ -119,6 +159,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "acb1161c6b64d1c3d83108213c2a2533a342ac225aabd0bda218278c2ddb00c0"
 dependencies = [
  "nom",
+]
+
+[[package]]
+name = "askama_parser"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7db09fde9143e7ac4513358fb32ee32847125b63b18ea715afd487956da715da"
+dependencies = [
+ "rustc-hash 2.1.2",
+ "serde",
+ "serde_derive",
+ "unicode-ident",
+ "winnow 1.0.3",
 ]
 
 [[package]]
@@ -324,7 +377,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "aribcaption",
- "askama",
+ "askama 0.16.0",
  "askama_axum",
  "async-trait",
  "axum",
@@ -2480,7 +2533,7 @@ dependencies = [
  "serde_spanned",
  "toml_datetime",
  "toml_write",
- "winnow",
+ "winnow 0.7.15",
 ]
 
 [[package]]
@@ -3085,6 +3138,15 @@ name = "winnow"
 version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
+name = "winnow"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0592e1c9d151f854e6fd382574c3a0855250e1d9b2f99d9281c6e6391af352f1"
 dependencies = [
  "memchr",
 ]
