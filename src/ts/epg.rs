@@ -115,7 +115,7 @@ fn parse_eit_section(data: &[u8]) -> Option<EpgInfo> {
                             epg.title = strip_arib_icons(&decode_arib_b24(&d[4..4 + name_len]));
                         }
                         let text_pos = 4 + name_len;
-                        if text_pos + 1 <= dlen {
+                        if text_pos < dlen {
                             let text_len = d[text_pos] as usize;
                             if text_pos + 1 + text_len <= dlen && text_len > 0 {
                                 // short description (short_text) - not stored separately
@@ -148,7 +148,7 @@ fn parse_eit_section(data: &[u8]) -> Option<EpgInfo> {
                     if dlen >= 5 {
                         let items_len = d[4] as usize;
                         let text_pos = 5 + items_len;
-                        if text_pos + 1 <= dlen {
+                        if text_pos < dlen {
                             let text_len = d[text_pos] as usize;
                             if text_pos + 1 + text_len <= dlen && text_len > 0 {
                                 let t = decode_arib_b24(&d[text_pos + 1..text_pos + 1 + text_len]);
