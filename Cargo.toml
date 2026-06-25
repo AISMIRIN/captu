@@ -62,3 +62,13 @@ encoding_rs = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
+
+[workspace.metadata.release]
+# Never publish to crates.io — this is a private application.
+publish = false
+tag-name = "v{{version}}"
+# Commit and tag only; push is done by scripts/release.sh from the host
+# where git credentials live.
+push = false
+sign-tag = false
+pre-release-commit-message = "update: release v{{version}}"

@@ -81,6 +81,8 @@ cache/{ts_stem}/
 - 実装したら必ず検証コマンドを実行し、結果を報告してから次へ進む
 - 検証が失敗したら原因を報告し修正案を提示する。勝手に大きく設計変更しない
 - 残フェーズは `plans/` を参照 (phase5-scheduler / phase7-ai-search / phase8-multimodal)
+- **改修は feature ブランチで行い、PR → CIグリーン → main マージ** (main 直 push は緊急時・リリースのみ)
+- PR作成前に `/sync-docs` を実行してドキュメントずれを解消する
 
 ## 検証チェックリスト
 
@@ -98,6 +100,31 @@ scripts/dev.sh test
 ```
 
 いずれかが失敗した場合は、pushやPR作成の前に必ず修正すること。
+
+## ブランチ戦略
+
+```
+git switch -c feature/xxx   # main から派生して作業
+# 実装 → /sync-docs → 検証 (dev.sh fmt/clippy/test)
+git push -u origin feature/xxx
+# GitHub で PR 作成 → CI グリーン → squash merge → main
+```
+
+main ブランチ保護: PR 必須・CIグリーン必須 (admin は bypass 可)。
+Dependabot PR は CI 通過後に squash 自動マージ。
+
+## リリース手順
+
+`scripts/release.sh` が cargo-release をコンテナ内で実行し、バージョンbump・commit・タグ・push を一括処理する。
+タグ push 後は CI が自動で GitHub Release を生成する。
+
+```bash
+# main 上で実行。必ずクリーンな状態で。
+scripts/release.sh patch   # 0.1.0 → 0.1.1
+scripts/release.sh minor   # 0.1.0 → 0.2.0
+scripts/release.sh major   # 0.1.0 → 1.0.0
+scripts/release.sh 1.2.3   # 明示指定
+```
 
 ## コミット規約
 

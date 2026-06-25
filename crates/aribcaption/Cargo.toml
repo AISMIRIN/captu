@@ -6,3 +6,7 @@ description = "Safe Rust wrappers for libaribcaption (ARIB STD-B24 caption decod
 
 [dependencies]
 aribcaption-sys = { path = "../aribcaption-sys" }
+
+[package.metadata.release]
+# Version is pinned to the parent workspace; do not release independently.
+release = false
