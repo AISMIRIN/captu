@@ -28,13 +28,12 @@ async fn schema_created_successfully() {
 
     // All expected tables should exist after init_db.
     for table in &["programs", "ts_files", "captions", "tags", "thumbnails"] {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
-        )
-        .bind(*table)
-        .fetch_one(&pool)
-        .await
-        .expect("query failed");
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?")
+                .bind(*table)
+                .fetch_one(&pool)
+                .await
+                .expect("query failed");
         assert_eq!(count, 1, "table '{}' not found", table);
     }
 }
@@ -159,7 +158,10 @@ async fn stale_ingesting_rows_reset_to_pending_on_init() {
             .await
             .expect("row not found");
 
-    assert_eq!(status, "pending", "stuck ingesting row should be reset to pending");
+    assert_eq!(
+        status, "pending",
+        "stuck ingesting row should be reset to pending"
+    );
 }
 
 // ── delete_ts_file: cache subtree guard ───────────────────────────────────────
@@ -188,11 +190,10 @@ async fn delete_ts_file_removes_only_cache_subtree() {
     .execute(&pool)
     .await
     .unwrap();
-    let id: i64 =
-        sqlx::query_scalar("SELECT id FROM ts_files WHERE path = '/nas/ep01.ts'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let id: i64 = sqlx::query_scalar("SELECT id FROM ts_files WHERE path = '/nas/ep01.ts'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
     delete_ts_file(&pool, id, cache_dir)
         .await
@@ -221,11 +222,10 @@ async fn delete_ts_file_empty_stem_does_not_remove_cache_root() {
     .execute(&pool)
     .await
     .unwrap();
-    let id: i64 =
-        sqlx::query_scalar("SELECT id FROM ts_files WHERE path = '/nas/nofolder/'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let id: i64 = sqlx::query_scalar("SELECT id FROM ts_files WHERE path = '/nas/nofolder/'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
     delete_ts_file(&pool, id, cache_dir)
         .await
@@ -251,11 +251,10 @@ async fn reset_ts_file_clears_metadata_and_returns_to_pending() {
     .execute(&pool)
     .await
     .unwrap();
-    let id: i64 =
-        sqlx::query_scalar("SELECT id FROM ts_files WHERE path = '/nas/ep03.ts'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let id: i64 = sqlx::query_scalar("SELECT id FROM ts_files WHERE path = '/nas/ep03.ts'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
     reset_ts_file(&pool, id, cache_tmp.path())
         .await
