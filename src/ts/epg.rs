@@ -643,7 +643,7 @@ mod tests {
     fn parse_eit_section_empty_title_returns_none() {
         // Section with a valid event but no title descriptor → None
         let buf = vec![0u8; 14 + 12 + 4]; // header + event (desc_loop_len=0) + CRC
-                                         // desc_loop_len = 0 (bytes 24-25 already 0)
+                                          // desc_loop_len = 0 (bytes 24-25 already 0)
         assert!(parse_eit_section(&buf).is_none());
     }
 

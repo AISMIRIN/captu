@@ -88,7 +88,7 @@ cache/{ts_stem}/
 
 ```bash
 # フォーマット確認
-scripts/dev.sh fmt --check
+scripts/dev.sh fmt --all --check
 
 # Clippyワーニングなし (CIと同じフラグ)
 scripts/dev.sh clippy --workspace --all-targets -- -D warnings
