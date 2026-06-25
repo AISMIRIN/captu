@@ -131,3 +131,44 @@ pub async fn episodes(
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::empty_as_none_i64;
+    use serde::de::IntoDeserializer;
+    use serde_json::Value as JValue;
+
+    fn de_i64(opt: Option<&str>) -> Option<i64> {
+        let v: JValue = match opt {
+            None => JValue::Null,
+            Some(s) => JValue::String(s.to_string()),
+        };
+        empty_as_none_i64(v.into_deserializer()).expect("deserialize failed")
+    }
+
+    #[test]
+    fn absent_gives_none() {
+        assert_eq!(de_i64(None), None);
+    }
+
+    #[test]
+    fn empty_string_gives_none() {
+        assert_eq!(de_i64(Some("")), None);
+    }
+
+    #[test]
+    fn valid_number() {
+        assert_eq!(de_i64(Some("42")), Some(42));
+    }
+
+    #[test]
+    fn negative_number() {
+        assert_eq!(de_i64(Some("-1")), Some(-1));
+    }
+
+    #[test]
+    fn parse_error_propagates() {
+        let v: JValue = JValue::String("abc".to_string());
+        assert!(empty_as_none_i64(v.into_deserializer()).is_err());
+    }
+}

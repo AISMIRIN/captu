@@ -136,3 +136,108 @@ impl Config {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Config;
+
+    #[test]
+    fn default_dev_values() {
+        let c = Config::default_dev();
+        assert_eq!(c.capture.thumb_count, 6);
+        assert_eq!(c.capture.thumb_width, 640);
+        assert_eq!(c.capture.thumb_height, 360);
+        assert_eq!(c.capture.thumb_quality, 4);
+        assert_eq!(c.server.port, 8000);
+        assert!(!c.ingest.require_captions);
+        assert!(c.ingest.filter_include.is_empty());
+        assert!(c.ingest.filter_exclude.is_empty());
+    }
+
+    #[test]
+    fn toml_optional_fields_get_defaults() {
+        let toml = r#"
+[paths]
+nas_mount = "/mnt/nas"
+ts_glob = "**/*.ts"
+cache_dir = "/tmp/cache"
+db_path = "/tmp/db.sqlite"
+
+[capture]
+thumb_count = 4
+width = 1920
+height = 1080
+jpeg_quality = 2
+
+[ingest]
+schedule_cron = "0 * * * * *"
+run_on_startup = false
+
+[server]
+host = "127.0.0.1"
+port = 8080
+"#;
+        let c: Config = toml::from_str(toml).expect("should parse");
+        // serde(default) fields
+        assert_eq!(c.capture.thumb_width, 640);
+        assert_eq!(c.capture.thumb_height, 360);
+        assert_eq!(c.capture.thumb_quality, 4);
+        assert_eq!(c.ingest.concurrency, 3);
+        assert!(!c.ingest.require_captions);
+        assert!(c.ingest.filter_include.is_empty());
+        assert!(c.ingest.filter_exclude.is_empty());
+    }
+
+    #[test]
+    fn toml_missing_required_field_errors() {
+        // thumb_count has no serde default → missing it must be an error
+        let toml = r#"
+[paths]
+nas_mount = "/mnt/nas"
+ts_glob = "**/*.ts"
+cache_dir = "/tmp/cache"
+db_path = "/tmp/db.sqlite"
+
+[capture]
+width = 1920
+height = 1080
+jpeg_quality = 2
+
+[ingest]
+schedule_cron = "0 * * * * *"
+run_on_startup = false
+
+[server]
+host = "127.0.0.1"
+port = 8080
+"#;
+        assert!(toml::from_str::<Config>(toml).is_err());
+    }
+
+    #[test]
+    fn toml_port_out_of_range_errors() {
+        // port is u16; value > 65535 must fail to parse
+        let toml = r#"
+[paths]
+nas_mount = "."
+ts_glob = "**/*.ts"
+cache_dir = "/tmp"
+db_path = "/tmp/db"
+
+[capture]
+thumb_count = 4
+width = 1920
+height = 1080
+jpeg_quality = 2
+
+[ingest]
+schedule_cron = "0 * * * * *"
+run_on_startup = false
+
+[server]
+host = "127.0.0.1"
+port = 99999
+"#;
+        assert!(toml::from_str::<Config>(toml).is_err());
+    }
+}

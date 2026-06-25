@@ -235,13 +235,7 @@ async fn do_ingest(path: &Path, config: &Config, pool: &SqlitePool, ts_file_id: 
 
     // Resolve program_id using series_title so episodes of the same series
     // share one programs row. Fall back to the raw title when no series separator.
-    let program_key = if !epg.series_title.is_empty() {
-        epg.series_title.clone()
-    } else if !epg.title.is_empty() && epg.title != "(unknown)" {
-        epg.title.clone()
-    } else {
-        String::new()
-    };
+    let program_key = resolve_program_key(&epg.series_title, &epg.title);
 
     let program_id: Option<i64> = if !program_key.is_empty() {
         let normalized = normalize_title(&program_key);
@@ -733,6 +727,22 @@ fn normalize_title(title: &str) -> String {
     title.nfkc().collect::<String>().to_lowercase()
 }
 
+/// Determine the program grouping key from EPG data.
+///
+/// Prefers `series_title` (derived from episode patterns) so that episodes of
+/// the same series share one `programs` row.  Falls back to `title` when the
+/// series is not known, and returns an empty string when the title is
+/// unavailable or is the `"(unknown)"` placeholder.
+fn resolve_program_key(series_title: &str, title: &str) -> String {
+    if !series_title.is_empty() {
+        series_title.to_string()
+    } else if !title.is_empty() && title != "(unknown)" {
+        title.to_string()
+    } else {
+        String::new()
+    }
+}
+
 /// Resolve the per-TS cache subdirectory from the stored path string.
 ///
 /// Returns `None` when the path has no file stem (e.g. dotfiles, directory paths)
@@ -748,7 +758,7 @@ fn cache_subtree(cache_dir: &Path, ts_path_str: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cache_subtree, normalize_title};
+    use super::{cache_subtree, normalize_title, resolve_program_key};
     use std::path::Path;
 
     // ── normalize_title ────────────────────────────────────────────────────────
@@ -811,5 +821,33 @@ mod tests {
         let cache = Path::new("/cache");
         let result = cache_subtree(cache, "");
         assert!(result.is_none());
+    }
+
+    // ── resolve_program_key ────────────────────────────────────────────────────
+
+    #[test]
+    fn resolve_program_key_prefers_series_title() {
+        // When series_title is set, it wins over title
+        assert_eq!(
+            resolve_program_key("シリーズ名", "シリーズ名 #3 エピソード"),
+            "シリーズ名"
+        );
+    }
+
+    #[test]
+    fn resolve_program_key_falls_back_to_title() {
+        // When series_title is empty, title is used
+        assert_eq!(resolve_program_key("", "番組名 特別編"), "番組名 特別編");
+    }
+
+    #[test]
+    fn resolve_program_key_unknown_placeholder_returns_empty() {
+        // The "(unknown)" placeholder must not become a program key
+        assert_eq!(resolve_program_key("", "(unknown)"), "");
+    }
+
+    #[test]
+    fn resolve_program_key_both_empty_returns_empty() {
+        assert_eq!(resolve_program_key("", ""), "");
     }
 }

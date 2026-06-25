@@ -519,8 +519,252 @@ pub fn extract_epg(ts_path: &Path, caption_services: &[u16]) -> Result<EpgInfo> 
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_mjd_bcd, extract_series_episode, strip_broadcast_flags};
+    use super::{
+        bcd_byte, decode_mjd_bcd, extract_series_episode, fill_series_episode, parse_digits_at,
+        parse_eit_section, strip_arib_icons, strip_broadcast_flags, EpgInfo,
+    };
     use chrono::Timelike;
+
+    // ── bcd_byte ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn bcd_byte_zero() {
+        assert_eq!(bcd_byte(0x00), Some(0));
+    }
+
+    #[test]
+    fn bcd_byte_max() {
+        assert_eq!(bcd_byte(0x99), Some(99));
+    }
+
+    #[test]
+    fn bcd_byte_lo_nibble_invalid() {
+        // lo nibble A (10) → invalid
+        assert_eq!(bcd_byte(0x0A), None);
+    }
+
+    #[test]
+    fn bcd_byte_hi_nibble_invalid() {
+        // hi nibble A (10) → invalid
+        assert_eq!(bcd_byte(0xA0), None);
+    }
+
+    // ── parse_digits_at ───────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_digits_at_ascii() {
+        assert_eq!(parse_digits_at("12"), Some((12, 2)));
+    }
+
+    #[test]
+    fn parse_digits_at_fullwidth() {
+        // FullWidth "１２" (U+FF11, U+FF12) → 12, 6 bytes consumed
+        assert_eq!(parse_digits_at("１２"), Some((12, 6)));
+    }
+
+    #[test]
+    fn parse_digits_at_mixed_ascii_fullwidth() {
+        // "1２3" → 1 byte + 3 bytes + 1 byte = 5 bytes, value = 123
+        assert_eq!(parse_digits_at("1２3"), Some((123, 5)));
+    }
+
+    #[test]
+    fn parse_digits_at_no_digits() {
+        assert_eq!(parse_digits_at("abc"), None);
+        assert_eq!(parse_digits_at(""), None);
+    }
+
+    #[test]
+    fn parse_digits_at_5digit_truncates() {
+        // When '5' pushes val to 12345 (>9999), the code breaks before updating byte_len.
+        // So byte_len=4 (bytes consumed up to '4') but val=12345 (includes overflow digit).
+        // This pins the current behavior as a regression test.
+        assert_eq!(parse_digits_at("12345"), Some((12345, 4)));
+    }
+
+    // ── strip_arib_icons ──────────────────────────────────────────────────────
+
+    #[test]
+    fn strip_arib_icons_removes_boundary_chars() {
+        // U+1F100 and U+1F2FF are the inclusive range boundaries — both must be removed
+        let s = "\u{1F100}テスト\u{1F2FF}";
+        assert_eq!(strip_arib_icons(s), "テスト");
+    }
+
+    #[test]
+    fn strip_arib_icons_outside_range_preserved() {
+        // U+1F0FF (one below) and U+1F300 (one above) must pass through unchanged
+        let s = "\u{1F0FF}あ\u{1F300}";
+        assert_eq!(strip_arib_icons(s), "\u{1F0FF}あ\u{1F300}");
+    }
+
+    #[test]
+    fn strip_arib_icons_empty() {
+        assert_eq!(strip_arib_icons(""), "");
+    }
+
+    // ── parse_eit_section ─────────────────────────────────────────────────────
+
+    /// Build a minimal EIT section with one event and a single 0x4D short_event_descriptor.
+    /// `title_b24` is the raw ARIB B24 name payload (no leading length byte).
+    fn eit_with_title(title_b24: &[u8]) -> Vec<u8> {
+        let name_len = title_b24.len();
+        let desc_body_len = 3 + 1 + name_len; // lang(3) + name_len_byte(1) + name
+        let desc_total = 2 + desc_body_len; // tag(1) + dlen(1) + body
+
+        let mut buf = Vec::with_capacity(14 + 12 + desc_total + 4);
+        // Section header (14 bytes)
+        buf.extend_from_slice(&[
+            0x4E, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4E,
+        ]);
+        // Event header (12 bytes): event_id(2) + start_time(5) + duration(3) + desc_len(2)
+        buf.extend_from_slice(&[0x00, 0x01]); // event_id
+        buf.extend_from_slice(&[0xFF, 0xFF, 0x00, 0x00, 0x00]); // start_time (0xFFFF → None)
+        buf.extend_from_slice(&[0x00, 0x10, 0x00]); // duration BCD
+        buf.push(((desc_total >> 8) & 0x0F) as u8); // desc_loop_len high nibble
+        buf.push((desc_total & 0xFF) as u8); // desc_loop_len low byte
+                                             // 0x4D descriptor
+        buf.push(0x4D); // tag
+        buf.push(desc_body_len as u8); // dlen
+        buf.extend_from_slice(&[0x6A, 0x70, 0x6E]); // lang "jpn"
+        buf.push(name_len as u8); // name_len
+        buf.extend_from_slice(title_b24); // name bytes
+                                          // CRC placeholder (4 bytes)
+        buf.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+        buf
+    }
+
+    #[test]
+    fn parse_eit_section_too_short() {
+        assert!(parse_eit_section(&[0u8; 17]).is_none());
+    }
+
+    #[test]
+    fn parse_eit_section_empty_title_returns_none() {
+        // Section with a valid event but no title descriptor → None
+        let mut buf = vec![0u8; 14 + 12 + 4]; // header + event (desc_loop_len=0) + CRC
+                                              // desc_loop_len = 0 (bytes 24-25 already 0)
+        assert!(parse_eit_section(&buf).is_none());
+    }
+
+    #[test]
+    fn parse_eit_section_short_event_title() {
+        // ESC 0x28 0x4A = designate alphanumeric to G0, then ASCII "AB"
+        let title_b24: &[u8] = &[0x1B, 0x28, 0x4A, 0x41, 0x42];
+        let data = eit_with_title(title_b24);
+        let epg = parse_eit_section(&data).expect("should return Some for non-empty title");
+        assert_eq!(epg.title, "AB");
+    }
+
+    #[test]
+    fn parse_eit_section_series_descriptor_ep_bits() {
+        // Section with 0x4D title "X" + 0xD5 series_descriptor encoding ep=5, last=12.
+        // ep = (d[5]<<4)|(d[6]>>4): d[5]=0x00, d[6]=0x5C → ep = 0|(0x5C>>4)=5
+        // last = ((d[6]&0x0F)<<8)|d[7]: d[6]&0x0F=0x0C, d[7]=0x00 → last=12
+        let title_b24: &[u8] = &[0x1B, 0x28, 0x4A, 0x58]; // "X"
+        let name_len = title_b24.len();
+        let desc_body_4d = 3 + 1 + name_len;
+        let desc_total_4d = 2 + desc_body_4d;
+
+        // 0xD5 series_descriptor: dlen=9 → d[0..9]
+        //   d[0..2]=series_id, d[2]=flags, d[3..5]=expire,
+        //   d[5]=ep_high, d[6]=ep_low<<4|last_high, d[7]=last_low, d[8]=name_len
+        let desc_d5: &[u8] = &[
+            0xD5, 0x09, // tag, dlen=9
+            0x00, 0x01, // series_id
+            0x00, // flags
+            0x00, 0x00, // expire
+            0x00, // d[5] ep_high (ep=5 → high bits = 0)
+            0x5C, // d[6] ep_low=5 <<4 | last_high=0x0C>>8=0  → 0x50|0x0C = 0x5C
+            0x00, // d[7] last_low = 0  (last = (0x0C << 8) | 0x00 = 12... wait)
+            0x00, // d[8] name_len=0
+        ];
+        // Recompute: last = ((d[6]&0x0F)<<8)|d[7]
+        // d[6]=0x5C → d[6]&0x0F = 0x0C → last = (0x0C<<8)|0x00 = 0x0C00 = 3072?
+        // That's wrong. For last=12=0x00C: d[6]&0x0F = high nibble of last = 0, d[7] = 12
+        // So d[6] must have lower nibble = 0x00, d[7] = 0x0C
+        // ep=5: d[5]=0x00, d[6] upper nibble = 0x50
+        // last=12: d[6] lower nibble = 0x00, d[7] = 0x0C
+        // d[6] = 0x50 | 0x00 = 0x50, d[7] = 0x0C
+
+        let desc_d5_correct: &[u8] = &[
+            0xD5, 0x09, // tag, dlen=9
+            0x00, 0x01, // series_id
+            0x00, // flags
+            0x00, 0x00, // expire
+            0x00, // d[5]: ep bits 11..4 = 0
+            0x50, // d[6]: ep bits 3..0 = 5 (upper nibble), last bits 11..8 = 0 (lower nibble)
+            0x0C, // d[7]: last bits 7..0 = 12
+            0x00, // d[8]: name_len = 0
+        ];
+        let desc_total_d5 = desc_d5_correct.len();
+        let desc_loop_len = desc_total_4d + desc_total_d5;
+
+        let mut buf = Vec::new();
+        // Section header (14 bytes)
+        buf.extend_from_slice(&[
+            0x4E, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4E,
+        ]);
+        // Event header (12 bytes)
+        buf.extend_from_slice(&[0x00, 0x01]);
+        buf.extend_from_slice(&[0xFF, 0xFF, 0x00, 0x00, 0x00]); // start_time
+        buf.extend_from_slice(&[0x00, 0x10, 0x00]); // duration
+        buf.push(((desc_loop_len >> 8) & 0x0F) as u8);
+        buf.push((desc_loop_len & 0xFF) as u8);
+        // 0x4D descriptor
+        buf.push(0x4D);
+        buf.push(desc_body_4d as u8);
+        buf.extend_from_slice(&[0x6A, 0x70, 0x6E]);
+        buf.push(name_len as u8);
+        buf.extend_from_slice(title_b24);
+        // 0xD5 descriptor
+        buf.extend_from_slice(desc_d5_correct);
+        // CRC
+        buf.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+
+        let epg = parse_eit_section(&buf).expect("should return Some");
+        assert_eq!(epg.title, "X");
+        assert_eq!(epg.episode_number, Some(5));
+        assert_eq!(epg.last_episode, Some(12));
+    }
+
+    #[test]
+    fn parse_eit_section_desc_len_overflow_no_panic() {
+        // Descriptor with dlen=20 but only 5 bytes allocated in desc_loop_len.
+        // The overflow guard (pos + dlen > desc_end) must trigger a break, not a panic.
+        let mut buf = vec![0u8; 14 + 12 + 5 + 4]; // header + event + 5 desc bytes + CRC
+                                                  // desc_loop_len = 5 at event bytes 10-11 (buf[24..26])
+        buf[25] = 0x05;
+        // Descriptor: tag=0x4D, dlen=20 (exceeds the 5 allocated bytes)
+        buf[26] = 0x4D;
+        buf[27] = 0x14; // dlen = 20
+        assert!(parse_eit_section(&buf).is_none()); // title stays "" → None
+    }
+
+    // ── fill_series_episode ───────────────────────────────────────────────────
+
+    #[test]
+    fn fill_series_episode_preserves_episode_from_descriptor() {
+        // episode_number already set (from 0xD5 series_descriptor) must not be overwritten
+        // even when the title contains a different episode pattern like "#7".
+        let epg = EpgInfo {
+            title: "シリーズ #7 話タイトル".to_string(),
+            series_title: String::new(),
+            sub_title: None,
+            episode_number: Some(3), // set from 0xD5
+            last_episode: None,
+            series_name: None,
+            air_datetime: None,
+            detail: None,
+        };
+        let filled = fill_series_episode(epg);
+        assert_eq!(
+            filled.episode_number,
+            Some(3),
+            "descriptor ep must win over title ep"
+        );
+        assert_eq!(filled.series_title, "シリーズ");
+    }
 
     // ── strip_broadcast_flags ─────────────────────────────────────────────────
 
@@ -549,6 +793,18 @@ mod tests {
         // Bracket in the middle of the title must not be stripped
         let s = "[special] タイトル";
         assert_eq!(strip_broadcast_flags(s), s.trim());
+    }
+
+    #[test]
+    fn strip_flags_close_bracket_only() {
+        // Unbalanced ']' with no matching '[' → rfind('[') returns None → no stripping
+        assert_eq!(strip_broadcast_flags("タイトル]"), "タイトル]");
+    }
+
+    #[test]
+    fn strip_flags_unclosed_open_bracket() {
+        // '[字' with no closing ']' → ends_with(']') is false → no stripping
+        assert_eq!(strip_broadcast_flags("タイトル[字"), "タイトル[字");
     }
 
     // ── extract_series_episode ────────────────────────────────────────────────
@@ -608,6 +864,41 @@ mod tests {
         assert_eq!(series, "番組名");
         assert_eq!(ep, None);
         assert_eq!(sub, Some("特別編".to_string()));
+    }
+
+    #[test]
+    fn extract_series_episode_dai_no_wa() {
+        // 第N without trailing 話 suffix must still extract the episode number
+        let (series, ep, sub) = extract_series_episode("アニメ第3");
+        assert_eq!(series, "アニメ");
+        assert_eq!(ep, Some(3));
+        assert_eq!(sub, None);
+    }
+
+    #[test]
+    fn extract_series_episode_ideographic_space() {
+        // U+3000 (ideographic space) is a valid fallback split point
+        let (series, ep, sub) = extract_series_episode("番組名\u{3000}サブタイトル");
+        assert_eq!(series, "番組名");
+        assert_eq!(ep, None);
+        assert_eq!(sub, Some("サブタイトル".to_string()));
+    }
+
+    #[test]
+    fn extract_series_episode_hash_non_digit() {
+        // '#' followed by a non-digit must not extract an episode; falls back to space split
+        let (series, ep, sub) = extract_series_episode("シリーズ #タグ");
+        assert_eq!(ep, None);
+        assert_eq!(series, "シリーズ");
+        assert_eq!(sub, Some("#タグ".to_string()));
+    }
+
+    #[test]
+    fn extract_series_episode_empty_string() {
+        let (series, ep, sub) = extract_series_episode("");
+        assert_eq!(series, "");
+        assert_eq!(ep, None);
+        assert_eq!(sub, None);
     }
 
     // ── decode_mjd_bcd ────────────────────────────────────────────────────────

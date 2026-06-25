@@ -15,6 +15,14 @@ const PAGE_SIZE: i64 = 50;
 /// so that `(page + 1) * PAGE_SIZE` can never overflow i64.
 const MAX_PAGE: i64 = 1_000_000;
 
+/// Split a newline-separated tag string into trimmed, non-empty tag slices.
+fn parse_tag_list(raw: &str) -> Vec<&str> {
+    raw.split('\n')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 /// Compute pagination window from a (already-clamped) page number and total count.
 /// Returns (loaded, has_next, offset).
 fn page_window(page: i64, total: i64) -> (i64, bool, i64) {
@@ -163,14 +171,7 @@ pub async fn search(
     let rep_frame = state.config.capture.thumb_count as i64 / 2;
 
     let active_q = if q.len() >= 2 { Some(q.as_str()) } else { None };
-    let tag_list: Vec<&str> = params
-        .tags
-        .as_deref()
-        .unwrap_or("")
-        .split('\n')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect();
+    let tag_list = parse_tag_list(params.tags.as_deref().unwrap_or(""));
 
     let has_filter = params.program_id.is_some()
         || params.ep.is_some()
@@ -445,9 +446,142 @@ fn push_search_where(qb: &mut QueryBuilder<Sqlite>, f: &SearchFilters<'_>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{empty_as_none_i64, empty_as_none_string, page_window, MAX_PAGE, PAGE_SIZE};
+    use super::{
+        empty_as_none_i64, empty_as_none_string, page_window, parse_tag_list, push_search_where,
+        SearchFilters, MAX_PAGE, PAGE_SIZE,
+    };
     use serde::de::IntoDeserializer;
     use serde_json::Value as JValue;
+    use sqlx::{QueryBuilder, Sqlite};
+
+    // ── push_search_where ─────────────────────────────────────────────────────
+
+    fn build_sql(f: SearchFilters<'_>) -> String {
+        let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new("");
+        push_search_where(&mut qb, &f);
+        qb.sql().to_string()
+    }
+
+    #[test]
+    fn where_all_none_produces_empty() {
+        let sql = build_sql(SearchFilters {
+            bind_text: None,
+            program_id: None,
+            ep: None,
+            bind_sub: None,
+            date_from: None,
+            date_to: None,
+            tag_list: &[],
+            filter: "all",
+        });
+        assert!(!sql.contains("WHERE"), "no conditions → no WHERE clause");
+        assert!(sql.is_empty());
+    }
+
+    #[test]
+    fn where_text_only_uses_where_prefix() {
+        let sql = build_sql(SearchFilters {
+            bind_text: Some("search%term"),
+            program_id: None,
+            ep: None,
+            bind_sub: None,
+            date_from: None,
+            date_to: None,
+            tag_list: &[],
+            filter: "all",
+        });
+        assert!(sql.contains(" WHERE "), "first condition must use WHERE");
+        assert!(sql.contains("c.text LIKE"), "text search clause present");
+        assert!(sql.contains("ESCAPE '\\'"), "escape clause present");
+        assert!(!sql.contains(" AND "), "only one condition → no AND");
+    }
+
+    #[test]
+    fn where_two_conditions_uses_and() {
+        let sql = build_sql(SearchFilters {
+            bind_text: Some("q"),
+            program_id: Some(42),
+            ep: None,
+            bind_sub: None,
+            date_from: None,
+            date_to: None,
+            tag_list: &[],
+            filter: "all",
+        });
+        assert!(sql.contains(" WHERE "));
+        assert!(sql.contains(" AND "), "second condition must use AND");
+        assert!(sql.contains("f.program_id ="));
+    }
+
+    #[test]
+    fn where_filter_generated() {
+        let sql = build_sql(SearchFilters {
+            bind_text: None,
+            program_id: None,
+            ep: None,
+            bind_sub: None,
+            date_from: None,
+            date_to: None,
+            tag_list: &[],
+            filter: "generated",
+        });
+        assert!(sql.contains("EXISTS(SELECT 1 FROM thumbnails"));
+        assert!(!sql.contains("NOT EXISTS"));
+    }
+
+    #[test]
+    fn where_filter_pending() {
+        let sql = build_sql(SearchFilters {
+            bind_text: None,
+            program_id: None,
+            ep: None,
+            bind_sub: None,
+            date_from: None,
+            date_to: None,
+            tag_list: &[],
+            filter: "pending",
+        });
+        assert!(sql.contains("NOT EXISTS(SELECT 1 FROM thumbnails"));
+    }
+
+    #[test]
+    fn where_multiple_tags_each_gets_exists() {
+        let tags = ["タグA", "タグB"];
+        let sql = build_sql(SearchFilters {
+            bind_text: None,
+            program_id: None,
+            ep: None,
+            bind_sub: None,
+            date_from: None,
+            date_to: None,
+            tag_list: &tags,
+            filter: "all",
+        });
+        // Each tag generates its own EXISTS clause joined by AND
+        assert_eq!(
+            sql.matches("EXISTS(SELECT 1 FROM tags").count(),
+            2,
+            "one EXISTS per tag"
+        );
+        assert!(sql.contains(" WHERE "), "first tag uses WHERE");
+        assert!(sql.contains(" AND "), "second tag uses AND");
+    }
+
+    #[test]
+    fn where_date_range() {
+        let sql = build_sql(SearchFilters {
+            bind_text: None,
+            program_id: None,
+            ep: None,
+            bind_sub: None,
+            date_from: Some("2024-01-01"),
+            date_to: Some("2024-12-31"),
+            tag_list: &[],
+            filter: "all",
+        });
+        assert!(sql.contains("f.air_date >="));
+        assert!(sql.contains("f.air_date <="));
+    }
 
     // ── empty_as_none_i64 ─────────────────────────────────────────────────────
     // The deserializer expects Option<String> semantics: None (absent) or Some(string).
@@ -544,15 +678,7 @@ mod tests {
         assert!(q.len() >= 2);
     }
 
-    // ── tag_list parsing ──────────────────────────────────────────────────────
-
-    fn parse_tag_list(s: &str) -> Vec<String> {
-        s.split('\n')
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-            .map(str::to_string)
-            .collect()
-    }
+    // ── parse_tag_list ────────────────────────────────────────────────────────
 
     #[test]
     fn tag_list_splits_on_newline() {
@@ -571,7 +697,7 @@ mod tests {
 
     #[test]
     fn tag_list_empty_input() {
-        let result: Vec<String> = parse_tag_list("");
+        let result: Vec<&str> = parse_tag_list("");
         assert!(result.is_empty());
     }
 

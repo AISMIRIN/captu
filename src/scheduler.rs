@@ -7,6 +7,11 @@ use tokio_cron_scheduler::{Job, JobScheduler};
 
 use crate::{config::Config, ingest};
 
+/// Create a fresh, unlocked ingest guard.
+pub fn new_guard() -> IngestGuard {
+    Arc::new(Mutex::new(()))
+}
+
 /// Shared guard preventing overlapping scan runs.
 /// Held by the startup scan in main.rs and by each scheduled tick.
 /// `try_lock` in the scheduled job skips the tick if a scan is already in flight.
@@ -53,4 +58,39 @@ pub async fn start(
     sched.start().await?;
     tracing::info!("scheduler started (cron: {})", cron);
     Ok(Some(sched))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::new_guard;
+
+    #[tokio::test]
+    async fn ingest_guard_blocks_concurrent_lock() {
+        let guard = new_guard();
+
+        // Acquire the lock
+        let _held = guard.try_lock().expect("first try_lock must succeed");
+
+        // Second try_lock must fail (WouldBlock) while the first is held
+        assert!(
+            guard.try_lock().is_err(),
+            "try_lock must fail while guard is already held"
+        );
+    }
+
+    #[tokio::test]
+    async fn ingest_guard_succeeds_after_release() {
+        let guard = new_guard();
+
+        {
+            let _held = guard.try_lock().expect("first lock");
+            assert!(guard.try_lock().is_err(), "held → second must fail");
+        } // _held dropped here
+
+        // After release, a new try_lock must succeed
+        assert!(
+            guard.try_lock().is_ok(),
+            "try_lock must succeed after previous lock is released"
+        );
+    }
 }

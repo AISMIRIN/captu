@@ -121,6 +121,90 @@ struct CaptureParams<'a> {
     out_pattern: &'a str,
 }
 
+/// Build the ffmpeg `select` filter expression for the given frame indices.
+///
+/// Returns a string like `eq(n\,0)+eq(n\,3)+eq(n\,7)` (backslash-escaped comma
+/// required by the ffmpeg filter syntax).  Returns an empty string for an empty
+/// frame list, which would produce an invalid select filter — callers are expected
+/// to guard against count=0 before reaching this point.
+fn build_select_expr(frame_nums: &[u64]) -> String {
+    frame_nums
+        .iter()
+        .map(|n| format!("eq(n\\,{})", n))
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
+/// Build the complete ffmpeg argument list from `p`.
+///
+/// `-ss` is placed before `-i` for fast NAS-based seek (CLAUDE.md convention).
+/// When a subtitle PNG is provided, a `-filter_complex` overlay pipeline is used;
+/// otherwise a simpler `-vf` chain suffices.
+fn build_ffmpeg_args(p: &CaptureParams<'_>) -> Vec<String> {
+    let input_url = format!("file:{}", p.ts_path.to_str().unwrap_or(""));
+    let pre_seek_str = format!("{:.6}", p.pre_seek);
+    let dur_str = format!("{:.6}", p.dur);
+    let q_str = p.quality.to_string();
+    let select_expr = build_select_expr(p.frame_nums);
+
+    if let Some(sub) = p.sub_png {
+        let sub_str = sub.to_str().unwrap_or("").to_string();
+        // Scale the subtitle PNG to the output dimensions in case it was
+        // rendered at full resolution (1920×1080) but the target is smaller.
+        let filter = format!(
+            "[0:v]bwdif=mode=send_frame,scale={}:{},setsar=1,select='{}',setpts=N/FRAME_RATE/TB[v];\
+             [1:v]scale={}:{}[s];\
+             [v][s]overlay=eof_action=repeat[out]",
+            p.width,
+            p.height,
+            select_expr,
+            p.width,
+            p.height,
+        );
+        vec![
+            "-y".into(),
+            "-ss".into(),
+            pre_seek_str,
+            "-t".into(),
+            dur_str,
+            "-i".into(),
+            input_url,
+            "-i".into(),
+            sub_str,
+            "-filter_complex".into(),
+            filter,
+            "-map".into(),
+            "[out]".into(),
+            "-fps_mode".into(),
+            "vfr".into(),
+            "-q:v".into(),
+            q_str,
+            p.out_pattern.into(),
+        ]
+    } else {
+        let vf = format!(
+            "bwdif=mode=send_frame,scale={}:{},setsar=1,select='{}',setpts=N/FRAME_RATE/TB",
+            p.width, p.height, select_expr
+        );
+        vec![
+            "-y".into(),
+            "-ss".into(),
+            pre_seek_str,
+            "-t".into(),
+            dur_str,
+            "-i".into(),
+            input_url,
+            "-vf".into(),
+            vf,
+            "-fps_mode".into(),
+            "vfr".into(),
+            "-q:v".into(),
+            q_str,
+            p.out_pattern.into(),
+        ]
+    }
+}
+
 /// Run the ffmpeg pipeline described by `p` and return the raw output.
 ///
 /// Filter chain:
@@ -134,77 +218,8 @@ struct CaptureParams<'a> {
 /// before being overlaid (required when the PNG was rendered at full
 /// resolution but the output is a smaller thumbnail).
 fn run_ffmpeg(p: &CaptureParams<'_>) -> Result<std::process::Output> {
-    let input_url = format!("file:{}", p.ts_path.to_str().unwrap_or(""));
-    let pre_seek_str = format!("{:.6}", p.pre_seek);
-    let dur_str = format!("{:.6}", p.dur);
-    let q_str = p.quality.to_string();
-
-    let select_expr = p
-        .frame_nums
-        .iter()
-        .map(|n| format!("eq(n\\,{})", n))
-        .collect::<Vec<_>>()
-        .join("+");
-
-    let out = if let Some(sub) = p.sub_png {
-        let sub_str = sub.to_str().unwrap_or("");
-        // Scale the subtitle PNG to the output dimensions in case it was
-        // rendered at full resolution (1920×1080) but the target is smaller.
-        let filter = format!(
-            "[0:v]bwdif=mode=send_frame,scale={}:{},setsar=1,select='{}',setpts=N/FRAME_RATE/TB[v];\
-             [1:v]scale={}:{}[s];\
-             [v][s]overlay=eof_action=repeat[out]",
-            p.width, p.height, select_expr,
-            p.width, p.height,
-        );
-        Command::new("ffmpeg")
-            .args([
-                "-y",
-                "-ss",
-                &pre_seek_str,
-                "-t",
-                &dur_str,
-                "-i",
-                &input_url,
-                "-i",
-                sub_str,
-                "-filter_complex",
-                &filter,
-                "-map",
-                "[out]",
-                "-fps_mode",
-                "vfr",
-                "-q:v",
-                &q_str,
-                p.out_pattern,
-            ])
-            .output()?
-    } else {
-        let vf = format!(
-            "bwdif=mode=send_frame,scale={}:{},setsar=1,select='{}',setpts=N/FRAME_RATE/TB",
-            p.width, p.height, select_expr
-        );
-        Command::new("ffmpeg")
-            .args([
-                "-y",
-                "-ss",
-                &pre_seek_str,
-                "-t",
-                &dur_str,
-                "-i",
-                &input_url,
-                "-vf",
-                &vf,
-                "-fps_mode",
-                "vfr",
-                "-q:v",
-                &q_str,
-                p.out_pattern,
-            ])
-            .output()?
-    };
-
-    Ok(out)
+    let args = build_ffmpeg_args(p);
+    Ok(Command::new("ffmpeg").args(&args).output()?)
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -390,7 +405,10 @@ pub fn ensure_full(
 
 #[cfg(test)]
 mod tests {
-    use super::{frame_indices, full_path, thumb_path, ts_stem};
+    use super::{
+        build_ffmpeg_args, build_select_expr, frame_indices, full_path, thumb_path, ts_stem,
+        CaptureParams,
+    };
     use std::path::Path;
 
     const FPS: f64 = 30_000.0 / 1001.0;
@@ -487,5 +505,110 @@ mod tests {
         // pts_start=0: pre_seek clamped to 0, win_start=1.5s → positive relative time
         let frames = frame_indices(0, 5_000, 3, FPS);
         assert!(frames[0] > 0);
+    }
+
+    // ── build_select_expr ──────────────────────────────────────────────────────
+
+    #[test]
+    fn select_expr_empty_frames() {
+        // Empty frame list produces an empty string (no valid select filter)
+        assert_eq!(build_select_expr(&[]), "");
+    }
+
+    #[test]
+    fn select_expr_single_frame() {
+        assert_eq!(build_select_expr(&[5]), "eq(n\\,5)");
+    }
+
+    #[test]
+    fn select_expr_multiple_frames_joined_with_plus() {
+        assert_eq!(
+            build_select_expr(&[0, 3, 7]),
+            "eq(n\\,0)+eq(n\\,3)+eq(n\\,7)"
+        );
+    }
+
+    // ── build_ffmpeg_args ──────────────────────────────────────────────────────
+
+    #[test]
+    fn ffmpeg_args_ss_before_input() {
+        // -ss must appear before -i to enable fast NAS-based seek (CLAUDE.md rule)
+        let ts = Path::new("/mnt/video.ts");
+        let p = CaptureParams {
+            ts_path: ts,
+            pre_seek: 10.0,
+            dur: 5.0,
+            frame_nums: &[0],
+            sub_png: None,
+            width: 640,
+            height: 360,
+            quality: 4,
+            out_pattern: "/tmp/out.jpg",
+        };
+        let args = build_ffmpeg_args(&p);
+        let ss_pos = args
+            .iter()
+            .position(|a| a == "-ss")
+            .expect("-ss must be present");
+        let i_pos = args
+            .iter()
+            .position(|a| a == "-i")
+            .expect("-i must be present");
+        assert!(ss_pos < i_pos, "-ss must come before -i");
+    }
+
+    #[test]
+    fn ffmpeg_args_no_sub_uses_vf() {
+        let ts = Path::new("/mnt/video.ts");
+        let p = CaptureParams {
+            ts_path: ts,
+            pre_seek: 10.0,
+            dur: 5.0,
+            frame_nums: &[0, 3],
+            sub_png: None,
+            width: 640,
+            height: 360,
+            quality: 4,
+            out_pattern: "/tmp/out%d.jpg",
+        };
+        let args = build_ffmpeg_args(&p);
+        assert!(
+            args.contains(&"-vf".to_string()),
+            "no-sub path must use -vf"
+        );
+        assert!(!args.contains(&"-filter_complex".to_string()));
+        assert!(!args.contains(&"-i".to_string().repeat(2))); // only one -i
+        let vf_idx = args.iter().position(|a| a == "-vf").unwrap();
+        assert!(
+            args[vf_idx + 1].contains("eq(n\\,0)+eq(n\\,3)"),
+            "select expr must be embedded in -vf"
+        );
+    }
+
+    #[test]
+    fn ffmpeg_args_with_sub_uses_filter_complex() {
+        let ts = Path::new("/mnt/video.ts");
+        let sub = Path::new("/tmp/sub.png");
+        let p = CaptureParams {
+            ts_path: ts,
+            pre_seek: 10.0,
+            dur: 5.0,
+            frame_nums: &[2],
+            sub_png: Some(sub),
+            width: 1920,
+            height: 1080,
+            quality: 2,
+            out_pattern: "/tmp/out.jpg",
+        };
+        let args = build_ffmpeg_args(&p);
+        assert!(
+            args.contains(&"-filter_complex".to_string()),
+            "sub path must use -filter_complex"
+        );
+        assert!(!args.contains(&"-vf".to_string()));
+        // Both -i flags: one for TS, one for subtitle PNG
+        assert_eq!(args.iter().filter(|a| a.as_str() == "-i").count(), 2);
+        // overlay mapping
+        assert!(args.contains(&"-map".to_string()));
     }
 }

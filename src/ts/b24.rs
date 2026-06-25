@@ -513,4 +513,79 @@ mod tests {
         let data = [0x1B, 0x6E, 0x77];
         assert_eq!(decode_arib_b24(&data), "ゝ");
     }
+
+    // ── Non-panic on empty / truncated input ──────────────────────────────────
+
+    #[test]
+    fn empty_input_returns_empty() {
+        assert_eq!(decode_arib_b24(&[]), "");
+    }
+
+    #[test]
+    fn truncated_esc_alone_no_panic() {
+        // 0x1B alone: loop increments i past data.len() → break inside ESC arm
+        let _ = decode_arib_b24(&[0x1B]);
+    }
+
+    #[test]
+    fn truncated_esc_24_no_panic() {
+        // 0x1B 0x24: multi-byte kanji ESC prefix, but truncated before the designator byte
+        let _ = decode_arib_b24(&[0x1B, 0x24]);
+    }
+
+    // ── GR-path kanji (gset=0, is_gr=true) ───────────────────────────────────
+
+    #[test]
+    fn gr_path_kanji_gaiji_decodes() {
+        // Designate Kanji to G1 via ESC 0x24 0x29 0x42 (3-byte sequence for G1=Kanji),
+        // then LS1R (ESC 0x7E) to move G1 → GR.
+        // GR bytes [0xF5, 0xA1]: gl_first = 0xF5 & 0x7F = 0x75 → gaiji area
+        //   ku = 0x75 - 0x21 = 84, ten = 0xA1 & 0x7F - 0x21 = 0 → index = 0 → U+3402
+        let data = [
+            0x1Bu8, 0x24, 0x29, 0x42, // ESC 0x24 0x29 0x42: designate Kanji to G1
+            0x1B, 0x7E, // ESC 0x7E: LS1R → G1 → GR
+            0xF5, 0xA1, // GR kanji gaiji bytes: ku=84, ten=0 → U+3402
+        ];
+        assert_eq!(decode_arib_b24(&data), "\u{3402}");
+    }
+
+    // ── Locking shifts GR (LS1R / LS2R / LS3R) ───────────────────────────────
+
+    #[test]
+    fn ls1r_shifts_g1_alphanumeric_to_gr() {
+        // Default G1 = Alphanumeric (gset 1).
+        // LS1R (ESC 0x7E): G1 → GR.  GR byte 0xC1 = 'A' (0xC1 & 0x7F = 0x41).
+        let data = [0x1Bu8, 0x7E, 0xC1];
+        assert_eq!(decode_arib_b24(&data), "A");
+    }
+
+    #[test]
+    fn ls2r_shifts_g2_hiragana_to_gr() {
+        // LS3R (ESC 0x7C) temporarily puts G3(Katakana) in GR, then LS2R (ESC 0x7D)
+        // restores G2(Hiragana) in GR.  GR byte 0xA4 → 'い' as before.
+        let data = [
+            0x1Bu8, 0x7C, // LS3R: G3(Katakana) → GR
+            0x1B, 0x7D, // LS2R: G2(Hiragana) → GR (restore)
+            0xA4, // GR hiragana byte → 'い'
+        ];
+        assert_eq!(decode_arib_b24(&data), "い");
+    }
+
+    #[test]
+    fn ls3r_shifts_g3_katakana_to_gr() {
+        // LS3R (ESC 0x7C) moves G3(Katakana) → GR.
+        // GR byte 0xA2: gl_byte = 0x22 → EUC [0xA5, 0xA2] = 'ア'
+        let data = [0x1Bu8, 0x7C, 0xA2];
+        assert_eq!(decode_arib_b24(&data), "ア");
+    }
+
+    // ── ARIB_GAIJI_TABLE boundary: last valid entry (index 938) ──────────────
+
+    #[test]
+    fn kanji_gaiji_last_valid_entry() {
+        // GL bytes [0x7E, 0x7D]: ku = 0x7E-0x21 = 93, ten = 0x7D-0x21 = 92
+        // index = (93-84)*94 + 92 = 846 + 92 = 938 → ARIB_GAIJI_TABLE[938] = U+325B
+        let data = [0x7Eu8, 0x7D];
+        assert_eq!(decode_arib_b24(&data), "\u{325B}");
+    }
 }

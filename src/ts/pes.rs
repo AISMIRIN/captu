@@ -424,7 +424,7 @@ pub(crate) fn extract_pes_payload(pes: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_pes_payload, parse_pts};
+    use super::{extract_pes_payload, parse_pts, read_pes_blob, write_pes_blob, CaptionPes};
 
     // ── parse_pts ──────────────────────────────────────────────────────────────
     //
@@ -527,5 +527,46 @@ mod tests {
         // opt_len causes header_total == pes.len() → empty payload
         let pes = vec![0u8; 9]; // opt_len=0 → header_total=9 == len → empty
         assert_eq!(extract_pes_payload(&pes), Vec::<u8>::new());
+    }
+
+    // ── write_pes_blob / read_pes_blob round-trip ─────────────────────────────
+
+    #[test]
+    fn pes_blob_roundtrip_preserves_pts_and_payload() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("captions.pes");
+
+        let original = vec![
+            CaptionPes {
+                pts_ms: 0,
+                payload: vec![0x80, 0x00, 0x01],
+            },
+            CaptionPes {
+                pts_ms: 5000,
+                payload: vec![0xAB, 0xCD],
+            },
+            CaptionPes {
+                pts_ms: 10333,
+                payload: vec![],
+            },
+        ];
+
+        write_pes_blob(&path, &original).expect("write");
+        let restored = read_pes_blob(&path).expect("read");
+
+        assert_eq!(restored.len(), original.len());
+        for (a, b) in original.iter().zip(restored.iter()) {
+            assert_eq!(a.pts_ms, b.pts_ms);
+            assert_eq!(a.payload, b.payload);
+        }
+    }
+
+    #[test]
+    fn pes_blob_roundtrip_empty_list() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("empty.pes");
+        write_pes_blob(&path, &[]).expect("write");
+        let restored = read_pes_blob(&path).expect("read");
+        assert!(restored.is_empty());
     }
 }
