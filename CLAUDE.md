@@ -80,3 +80,20 @@ cache/{ts_stem}/
 - 実装したら必ず検証コマンドを実行し、結果を報告してから次へ進む
 - 検証が失敗したら原因を報告し修正案を提示する。勝手に大きく設計変更しない
 - 残フェーズは `plans/` を参照 (phase5-scheduler / phase7-ai-search / phase8-multimodal)
+
+## 検証チェックリスト
+
+実装完了の条件は以下すべてがCIと同等に通ること（`scripts/dev.sh` 経由で実行）：
+
+```bash
+# フォーマット確認
+scripts/dev.sh fmt --check
+
+# Clippyワーニングなし (CIと同じフラグ)
+scripts/dev.sh clippy -- -D warnings
+
+# テスト全通過
+scripts/dev.sh test
+```
+
+いずれかが失敗した場合は、pushやPR作成の前に必ず修正すること。

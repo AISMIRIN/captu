@@ -237,14 +237,16 @@ async fn run_search(
         );
         push_search_where(
             &mut qb,
-            bind_text.as_deref(),
-            params.program_id,
-            params.ep,
-            bind_sub.as_deref(),
-            params.date_from.as_deref(),
-            params.date_to.as_deref(),
-            tag_list,
-            filter,
+            &SearchFilters {
+                bind_text: bind_text.as_deref(),
+                program_id: params.program_id,
+                ep: params.ep,
+                bind_sub: bind_sub.as_deref(),
+                date_from: params.date_from.as_deref(),
+                date_to: params.date_to.as_deref(),
+                tag_list,
+                filter,
+            },
         );
         qb.build_query_scalar().fetch_one(&state.pool).await?
     };
@@ -281,14 +283,16 @@ async fn run_search(
         );
         push_search_where(
             &mut qb,
-            bind_text.as_deref(),
-            params.program_id,
-            params.ep,
-            bind_sub.as_deref(),
-            params.date_from.as_deref(),
-            params.date_to.as_deref(),
-            tag_list,
-            filter,
+            &SearchFilters {
+                bind_text: bind_text.as_deref(),
+                program_id: params.program_id,
+                ep: params.ep,
+                bind_sub: bind_sub.as_deref(),
+                date_from: params.date_from.as_deref(),
+                date_to: params.date_to.as_deref(),
+                tag_list,
+                filter,
+            },
         );
         qb.push(" ORDER BY f.air_date DESC, f.episode_number, c.pts_start LIMIT ");
         qb.push_bind(PAGE_SIZE);
@@ -347,22 +351,33 @@ async fn run_search(
     Ok((results, total))
 }
 
+struct SearchFilters<'a> {
+    bind_text: Option<&'a str>,
+    program_id: Option<i64>,
+    ep: Option<i64>,
+    bind_sub: Option<&'a str>,
+    date_from: Option<&'a str>,
+    date_to: Option<&'a str>,
+    tag_list: &'a [&'a str],
+    filter: &'a str,
+}
+
 /// Append a WHERE clause to a QueryBuilder for search queries.
 ///
 /// All conditions are collected here so that the SQL and its bound values are
 /// always in sync — no risk of a mismatch from a manually maintained parallel
 /// conditions-list + bind-chain.
-fn push_search_where(
-    qb: &mut QueryBuilder<Sqlite>,
-    bind_text: Option<&str>,
-    program_id: Option<i64>,
-    ep: Option<i64>,
-    bind_sub: Option<&str>,
-    date_from: Option<&str>,
-    date_to: Option<&str>,
-    tag_list: &[&str],
-    filter: &str,
-) {
+fn push_search_where(qb: &mut QueryBuilder<Sqlite>, f: &SearchFilters<'_>) {
+    let SearchFilters {
+        bind_text,
+        program_id,
+        ep,
+        bind_sub,
+        date_from,
+        date_to,
+        tag_list,
+        filter,
+    } = *f;
     let mut n = 0usize;
 
     // Prepend WHERE / AND depending on whether this is the first condition.
