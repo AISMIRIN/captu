@@ -4,7 +4,7 @@ fn format_ms(ms: i64) -> String {
     let h = ms / 3_600_000;
     let m = (ms % 3_600_000) / 60_000;
     let s = (ms % 60_000) / 1_000;
-    let msec = ms % 1_000;  // milliseconds component (0-999), not centiseconds
+    let msec = ms % 1_000; // milliseconds component (0-999), not centiseconds
     format!("{:02}:{:02}:{:02}.{:03}", h, m, s, msec)
 }
 
@@ -16,7 +16,8 @@ fn main() {
     }
 
     let ts_path = Path::new(&args[1]);
-    let cache_dir: PathBuf = args.windows(2)
+    let cache_dir: PathBuf = args
+        .windows(2)
         .find(|w| w[0] == "--cache-dir")
         .map(|w| PathBuf::from(&w[1]))
         .unwrap_or_else(|| PathBuf::from("/tmp/captu_extract"));
@@ -33,15 +34,15 @@ fn main() {
             println!("series_title:   {}", epg.series_title);
             match epg.episode_number {
                 Some(ep) => println!("episode:        {}", ep),
-                None     => println!("episode:        (none)"),
+                None => println!("episode:        (none)"),
             }
             match &epg.sub_title {
                 Some(s) => println!("sub_title:      {}", s),
-                None    => println!("sub_title:      (none)"),
+                None => println!("sub_title:      (none)"),
             }
             match epg.air_datetime {
                 Some(dt) => println!("air_date:       {}", dt),
-                None      => println!("air_date:       (none)"),
+                None => println!("air_date:       (none)"),
             }
         }
         Err(e) => eprintln!("EPG error: {:#}", e),
@@ -52,7 +53,10 @@ fn main() {
         println!();
         println!("=== Raw decoder output ===");
         let caption_pid = captu::ts::pes::find_caption_pid(ts_path);
-        println!("caption PID: {:?}", caption_pid.map(|p| format!("0x{:04X}", p)));
+        println!(
+            "caption PID: {:?}",
+            caption_pid.map(|p| format!("0x{:04X}", p))
+        );
 
         if let Some(pid) = caption_pid {
             let pes_list = captu::ts::pes::demux_caption_pes(ts_path, pid);
@@ -127,7 +131,7 @@ mod tests {
     #[test]
     fn format_ms_mixed() {
         // 1h 2m 3s 456ms
-        let ms = 1 * 3_600_000 + 2 * 60_000 + 3 * 1_000 + 456;
+        let ms = 3_600_000 + 2 * 60_000 + 3 * 1_000 + 456;
         assert_eq!(format_ms(ms), "01:02:03.456");
     }
 
