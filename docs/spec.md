@@ -42,20 +42,30 @@ captu/
 │   ├── media/
 │   │   ├── mod.rs
 │   │   └── capture.rs             # ffmpeg 単一パスサムネ生成 (コンタクトシート / フル解像度)
-│   └── routes/
-│       ├── mod.rs                 # AppState, display_title(), fmt_ms(), like_escape()
-│       ├── search.rs              # GET / , GET /search
-│       ├── contact.rs             # GET /contact/:id
-│       ├── capture.rs             # GET /thumb/:id/:n , GET /full/:id/:n , POST /select/:id/:n
-│       ├── episodes.rs            # GET /api/episodes
-│       ├── tags.rs                # POST /caption/:id/tags , POST /caption/:id/tags/delete , GET /api/tags
-│       └── ingest.rs              # GET /ingest/status , POST /reingest/:id
+│   ├── routes/
+│   │   ├── mod.rs                 # AppState, display_title(), fmt_ms(), like_escape()
+│   │   ├── search.rs              # GET / , GET /search
+│   │   ├── contact.rs             # GET /contact/{id}
+│   │   ├── capture.rs             # GET /thumb/{id}/{n} , GET /full/{id}/{n}
+│   │   │                          #   POST /select/{id}/{n} , POST /recapture/{id}
+│   │   ├── episodes.rs            # GET /api/episodes
+│   │   ├── tags.rs                # POST /caption/{id}/tags , POST /caption/{id}/tags/delete , GET /api/tags
+│   │   └── ingest.rs              # GET /ingest/status , GET /ingest/files , GET /ingest/file/{id}
+│   │                              #   POST /ingest/clear/{id} , POST /reingest/{id}
+│   └── bin/
+│       ├── extract.rs             # 診断CLI: TSから字幕/EPGをダンプ
+│       └── ingest_cli.rs          # 本番CLI: スキャン・再取り込み
+│
+├── migrations/
+│   ├── 001_init.sql               # 初期スキーマ (programs / ts_files / captions / tags / thumbnails)
+│   └── 002_pes_regen.sql          # ts_files.pes_regen カラム追加
 │
 ├── ui/
-│   ├── templates/                 # askamaテンプレート (コンパイル時検証, askama.toml で root 宣言)
+│   ├── templates/                 # askamaテンプレート (コンパイル時検証, askama.toml の dirs で指定)
 │   │   ├── layouts/base.html
 │   │   ├── macros.html
 │   │   ├── pages/                 # index.html / contact.html / ingest_status.html
+│   │   │                          #   ingest_files.html / ingest_file.html
 │   │   └── fragments/             # episodes.html / search_results.html / tag_options.html / tags.html
 │   └── static/
 │       ├── app.js                 # フレーム選択・JPEG共有/コピー/ダウンロード
@@ -99,12 +109,12 @@ scripts/dev.sh build
 
 ### 主な依存クレート
 
-- Web: axum 0.7, tokio, tower-http
-- テンプレート: askama (コンパイル時検証)
-- DB: sqlx 0.7 (sqlite + chrono features)
-- ARIB字幕: `aribcaption-sys` (ワークスペースメンバー, libaribcaptionのFFIラッパー)
+- Web: axum 0.8, tokio, tower-http
+- テンプレート: askama 0.16 (コンパイル時検証)
+- DB: sqlx 0.8 (sqlite + chrono features)
+- ARIB字幕: `aribcaption` (ワークスペースメンバー, libaribcaptionのsafe Rustラッパー; raw FFI は `aribcaption-sys`)
 - スケジューラ: tokio-cron-scheduler (6フィールドcron、秒単位指定)
-- その他: serde, toml, glob, png, bincode, encoding_rs, unicode-normalization, tracing
+- その他: serde, toml, glob, png 0.18, postcard, encoding_rs, unicode-normalization, tracing
 
 ### テスト実行
 ```bash
@@ -156,6 +166,8 @@ pub struct ServerConfig {
 
 ## DBスキーマ
 
+スキーマは `migrations/` ディレクトリに分割されており、`db::init_db()` が `sqlx::migrate!` で自動適用する。
+
 ```sql
 -- 番組マスタ (EITのタイトルを正規化して格納)
 CREATE TABLE IF NOT EXISTS programs (
@@ -176,7 +188,9 @@ CREATE TABLE IF NOT EXISTS ts_files (
     program_id     INTEGER REFERENCES programs(id),
     episode_number INTEGER,              -- NULL = 話数不明 (series_descriptor なし)
     episode_title  TEXT,                 -- extended_event_descriptor 由来のサブタイトル
-    air_date       DATE                  -- EITのstart_time; なければファイルmtime
+    air_date       DATE,                 -- EITのstart_time; なければファイルmtime
+    pes_regen      INTEGER NOT NULL DEFAULT 0
+                   -- captions.pes 自動再生成キュー状態: 0=idle / 1=queued / 2=active
 );
 
 -- 字幕エントリ
@@ -234,6 +248,7 @@ pending → ingesting → done
 
 - スキャン時は `done` / `error` / `'ingesting'` をスキップ
 - 起動時に `'ingesting'` 残骸を `pending` に戻す（クラッシュ復旧）
+- 起動時に `pes_regen <> 0` の残骸を `0`（idle）に戻す（クラッシュ復旧）
 
 ---
 
@@ -244,7 +259,7 @@ pending → ingesting → done
 1. **起動時スキャン** (`run_on_startup = true`)
 2. **定期スキャン**: `schedule_cron`（6フィールドcron、秒付き）で周期実行。
    `scheduler::start()` が `tokio-cron-scheduler` ベースのジョブを起動。
-   起動時スキャンと共有の `IngestGuard`（`Arc<Mutex<()>>`）で排他制御し、
+   起動時スキャンと共有の `IngestGuard`（`Arc<tokio::sync::Mutex<()>>`）で排他制御し、
    前のスキャンが終わっていない tick は `try_lock` で自動スキップ。
    `schedule_cron = ""` で定期スキャンを無効化できる。
 
@@ -254,10 +269,17 @@ pending → ingesting → done
 
 ```
 scan_and_ingest():
-1. ts_glob パターンでTSファイルを列挙
-2. done/error/ingesting をスキップ (HashSet で高速判定)
-3. 未登録ファイルを pending で INSERT OR IGNORE
-4. ingest_one() を並列ワーカー (concurrency 設定) で実行
+Phase 1: scan_and_enqueue()
+  - ts_glob パターンでTSファイルを列挙
+  - done/error/ingesting をスキップ (HashSet で高速判定)
+  - 未登録ファイルを pending で INSERT OR IGNORE
+
+Phase 2: enqueue_missing_pes() + run_pes_regen_workers()  [欠損ブロブがある場合のみ]
+  - cache/{stem}/captions.pes が存在しない done 行を検出し pes_regen=1 (queued) に更新
+  - ワーカーが TS を読み直して captions.pes を再生成 (DB の status は変更しない)
+
+Phase 3: run_workers()
+  - pending 行を ingest_one() で並列処理 (concurrency 設定)
 ```
 
 ### 1ファイルの取り込み処理
@@ -336,7 +358,7 @@ ffmpeg -y -ss {pre_seek} -t {dur} -i file:{ts} [-i {sub.png}]
 
 ### フル解像度JPEG生成 (`ensure_full`)
 
-`GET /full/:id/:n` からトリガーされる単一フレーム取得。
+`GET /full/{id}/{n}` からトリガーされる単一フレーム取得。
 コンタクトシートと同一の ffmpeg シーク戦略だが、解像度とクオリティが異なる。
 
 ```
@@ -371,22 +393,22 @@ ffmpeg -y -ss {pre_seek} -t {dur} -i file:{ts} [-i {sub.png}]
 
 q・フィルタ・filter が全て未指定の場合は空結果を返す。
 
-### GET /contact/:id
+### GET /contact/{id}
 コンタクトシートページ。`caption_id` を受け取り、`contact.html` を返す。
 サムネは非同期生成（ページ表示後に各 `GET /thumb` リクエストで生成）。
 
-### GET /thumb/:id/:n
+### GET /thumb/{id}/{n}
 コンタクトシート用縮小JPEG配信（`cfg.thumb_width × cfg.thumb_height`）。
 キャッシュがなければ生成してから返す。
 同一 caption への並列リクエストはロック制御（1本のみ ffmpeg を実行、後続はキャッシュヒット）。
 初回生成成功時に `thumbnails(caption_id, default_frame)` を INSERT OR IGNORE。
 
-### GET /full/:id/:n
+### GET /full/{id}/{n}
 フル解像度JPEG配信（`cfg.width × cfg.height`）。DL・Web Share・クリップボードコピー用。
 `/thumb` と同じ per-caption ロック制御。キャッシュ済みならそのまま返す。
 `cache/{stem}/full/{id}_{n:02}.jpg` に保存。
 
-### POST /select/:id/:n
+### POST /select/{id}/{n}
 ユーザーが選んだフレーム番号を永続化。
 `thumbnails.selected_frame` を upsert する。検索結果のプレビュー表示に反映される。
 
@@ -396,19 +418,33 @@ q・フィルタ・filter が全て未指定の場合は空結果を返す。
 - 上記以外 → 話数一覧を返す
 
 ### GET /ingest/status
-取り込み状況（status 別カウント・最近のエラー）を HTML で返す。
+取り込み状況（status 別カウント・最近のエラー・captions.pes 再生成中の件数）を HTML で返す。
+`regenerating` / `regenerating_files` フィールドで再生成中のファイル数と名前を含む。
 
-### POST /caption/:id/tags
+### GET /ingest/files
+全 TS ファイルの一覧（status・pes_regen・エラー情報）を HTML で返す。
+
+### GET /ingest/file/{id}
+指定 TS ファイルの詳細（status / pes_regen / 字幕数 / エラーメッセージ等）を HTML で返す。
+
+### POST /ingest/clear/{id}
+指定 TS ファイルの status を `pending` にリセットし、関連キャッシュ（captions.pes / PNG / JPEG）を削除。
+次回スキャン時に完全再取り込みが走る。
+
+### POST /caption/{id}/tags
 タグ追加（冪等）。`Form { tag: String }` を受け取り、当該 caption の最新タグリストを HTML フラグメントで返す。
 
-### POST /caption/:id/tags/delete
+### POST /caption/{id}/tags/delete
 タグ削除。`Form { tag: String }` を受け取り、最新タグリストを HTML フラグメントで返す。
 
 ### GET /api/tags
 全ての distinct タグを返す（`<option>` リスト形式）。タグフィルタ select とオートコンプリート datalist の候補として使用。
 
-### POST /reingest/:id
+### POST /reingest/{id}
 指定 `ts_file_id` の status を `pending` にリセットして再取り込みキューに投入。
+
+### POST /recapture/{id}
+指定 caption の thumbs / full / sub PNG キャッシュを削除し、次回アクセス時に再生成させる。
 
 ---
 
@@ -434,7 +470,7 @@ q・フィルタ・filter が全て未指定の場合は空結果を返す。
 ### コンタクトシートUI (contact.html)
 
 - 字幕テキストと最大 `thumb_count` 枚のサムネをグリッド表示
-- サムネクリック → `selectFrame(n)` で選択状態更新 + `POST /select/:id/:n` 呼び出し
+- サムネクリック → `selectFrame(n)` で選択状態更新 + `POST /select/{id}/{n}` 呼び出し
 - 拡大プレビューを上部に表示
 
 ### JPEG取得後の処理 (static/app.js)

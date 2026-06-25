@@ -77,7 +77,8 @@ scripts/dev.sh run --bin extract -- /mnt/nas/video/sample.ts
 CAPTU_NAS_HOST=/mnt/your/recordings scripts/dev.sh run --bin ingest_cli -- --scan /mnt/nas/video
 
 # 本番 (runtime ターゲット — stock ffmpeg + aribcaption-sys static link)
-cp config.toml.example config.toml  # 編集して録画ディレクトリ等を設定
+cp .env.example .env                # CAPTU_NAS_HOST（ホスト側録画ディレクトリ）を設定
+cp config.toml.example config.toml  # 録画ディレクトリ等を設定
 docker compose up --build -d
 ```
 
@@ -94,7 +95,8 @@ docker compose up --build -d
 | `capture.thumb_count` | コンタクトシートのサムネ枚数 |
 | `ingest.concurrency` | 並列取り込みワーカー数 |
 
-環境変数 `CAPTU_NAS_MOUNT / CAPTU_TS_GLOB / CAPTU_DB_PATH / CAPTU_CACHE_DIR` でも上書き可能。
+環境変数 `CAPTU_NAS_MOUNT / CAPTU_TS_GLOB / CAPTU_DB_PATH / CAPTU_CACHE_DIR` でコンテナ内の設定値を上書き可能。
+`CAPTU_NAS_HOST`（`.env` で設定）は compose.yaml がホスト側ディレクトリをコンテナにマウントする際に使う別変数。
 
 ## CLIの使い方
 
@@ -105,7 +107,7 @@ scripts/dev.sh run --bin extract -- /mnt/nas/video/example.ts --debug-raw
 
 # 手動取り込み (ingest_cli bin)
 scripts/dev.sh run --bin ingest_cli -- --scan /mnt/nas/video
-scripts/dev.sh run --bin ingest_cli -- --reingest <ts_file_id>
+scripts/dev.sh run --bin ingest_cli -- --reingest <ts-path>
 scripts/dev.sh run --bin ingest_cli -- --reingest-program <program_id>
 ```
 
@@ -113,7 +115,7 @@ scripts/dev.sh run --bin ingest_cli -- --reingest-program <program_id>
 
 ```
 cache/{ts_stem}/
-  captions.pes           # ARIB字幕PESブロブ (取り込み時に保存)
+  captions.pes           # ARIB字幕PESブロブ (取り込み時に保存。欠損時はスキャン毎に自動再生成)
   sub/{caption_id}.png   # 字幕PNG (on-demand描画、初回アクセス時に生成)
   thumbs/
     {caption_id}_{n:02}.jpg  # コンタクトシートJPEG (縮小表示用、初回アクセス時に生成)

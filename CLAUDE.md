@@ -29,11 +29,12 @@ src/
 ├── routes/
 │   ├── mod.rs       # AppState, display_title(), fmt_ms(), like_escape()
 │   ├── search.rs    # GET /, GET /search
-│   ├── contact.rs   # GET /contact/:id (コンタクトシート)
-│   ├── capture.rs   # GET /thumb/:id/:n, GET /full/:id/:n, POST /select/:id/:n
+│   ├── contact.rs   # GET /contact/{id} (コンタクトシート)
+│   ├── capture.rs   # GET /thumb/{id}/{n}, GET /full/{id}/{n}, POST /select/{id}/{n}, POST /recapture/{id}
 │   ├── episodes.rs  # GET /api/episodes
-│   ├── tags.rs      # POST /caption/:id/tags, DELETE, GET /api/tags
-│   └── ingest.rs    # GET /ingest/status, POST /reingest/:id
+│   ├── tags.rs      # POST /caption/{id}/tags, POST /caption/{id}/tags/delete, GET /api/tags
+│   └── ingest.rs    # GET /ingest/status, GET /ingest/files, GET /ingest/file/{id}
+│                    #   POST /ingest/clear/{id}, POST /reingest/{id}
 └── bin/
     ├── extract.rs    # 診断CLI: TSから字幕/EPGをダンプ
     └── ingest_cli.rs # 本番CLI: スキャン・再取り込み
@@ -44,10 +45,10 @@ crates/
                      # Decoder::set_replace_msz_fullwidth_japanese でcaptu固有設定を制御
 
 ui/
-├── templates/       # askamaテンプレート (askama.toml で root 宣言)
+├── templates/       # askamaテンプレート (askama.toml の dirs でテンプレートディレクトリ指定)
 │   ├── layouts/     # base.html
 │   ├── macros.html  # 共有マクロ
-│   ├── pages/       # index.html / contact.html / ingest_status.html
+│   ├── pages/       # index.html / contact.html / ingest_status.html / ingest_files.html / ingest_file.html
 │   └── fragments/   # episodes.html / search_results.html / tag_options.html / tags.html
 └── static/
     ├── app.js       # フレーム選択・JPEG共有/コピー/ダウンロード (contact系)
