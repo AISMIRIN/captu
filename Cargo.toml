@@ -37,7 +37,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # Scheduling — TODO(Phase5): wire up periodic ingest via tokio-cron-scheduler
-tokio-cron-scheduler = "0.10"
+tokio-cron-scheduler = "0.15"
 
 # LLM — TODO(Phase7): wire up AI search via reqwest + Gemini/Anthropic
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
