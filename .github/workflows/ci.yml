@@ -91,3 +91,37 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  update-dependabot-prs:
+    name: rebase open Dependabot PRs onto main
+    needs: [docker]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.DEPENDABOT_SYNC_APP_ID }}
+          private-key: ${{ secrets.DEPENDABOT_SYNC_APP_PRIVATE_KEY }}
+
+      - name: Update open Dependabot PR branches
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          # List open PRs authored by Dependabot, then update each branch.
+          # The App-token push re-triggers the PR's CI — unlike GITHUB_TOKEN which
+          # is suppressed by GitHub's recursive-workflow protection.
+          prs=$(gh pr list --repo "$REPO" --state open --json number,author \
+            --jq '.[] | select(.author.login=="app/dependabot") | .number')
+          for n in $prs; do
+            echo "::group::Updating PR #$n"
+            gh pr update-branch "$n" --repo "$REPO" \
+              || echo "PR #$n: update failed (likely conflict) — skipping"
+            echo "::endgroup::"
+          done
