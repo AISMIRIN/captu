@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE ts_files SET pes_regen = 0 WHERE pes_regen <> 0",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "606a957d08017175c80da00348d2df811213ae2237bd229af6d9221004bc5e5f"
+}

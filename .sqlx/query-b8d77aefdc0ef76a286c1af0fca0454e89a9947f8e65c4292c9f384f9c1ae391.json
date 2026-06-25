@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE ts_files SET pes_regen = 2\n               WHERE id = (SELECT id FROM ts_files WHERE pes_regen = 1 LIMIT 1)\n                 AND pes_regen = 1\n               RETURNING id AS \"id!: i64\", path AS \"path!: String\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "path!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "b8d77aefdc0ef76a286c1af0fca0454e89a9947f8e65c4292c9f384f9c1ae391"
+}

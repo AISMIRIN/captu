@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT filename FROM ts_files WHERE pes_regen <> 0 ORDER BY pes_regen DESC, filename",
+  "describe": {
+    "columns": [
+      {
+        "name": "filename",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "935c7b03361736e4b565dd14b56f102d2345277563ab121664694c7fffcc5f4f"
+}

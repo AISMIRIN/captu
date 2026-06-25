@@ -29,6 +29,8 @@
         <span>
           {% if ingesting > 0 %}
             処理中...
+          {% else if regenerating > 0 %}
+            字幕再生成中...
           {% else if pending > 0 %}
             待機中
           {% else if total == 0 %}
@@ -74,6 +76,20 @@
       <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">処理中</h2>
       <div class="space-y-1">
         {% for f in ingesting_files %}
+        <div class="text-sm text-gray-300 bg-gray-800 rounded px-3 py-1.5 font-mono truncate">
+          {{ f }}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# captions.pes regen queue #}
+    {% if regenerating > 0 %}
+    <div class="mb-6">
+      <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">字幕再生成中 ({{ regenerating }})</h2>
+      <div class="space-y-1">
+        {% for f in regenerating_files %}
         <div class="text-sm text-gray-300 bg-gray-800 rounded px-3 py-1.5 font-mono truncate">
           {{ f }}
         </div>

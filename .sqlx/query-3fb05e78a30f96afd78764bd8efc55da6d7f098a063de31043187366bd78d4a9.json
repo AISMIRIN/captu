@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: i64\", path\n           FROM ts_files\n           WHERE status = 'done'\n             AND pes_regen = 0\n             AND EXISTS (SELECT 1 FROM captions c WHERE c.ts_file_id = id)",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "path",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "3fb05e78a30f96afd78764bd8efc55da6d7f098a063de31043187366bd78d4a9"
+}

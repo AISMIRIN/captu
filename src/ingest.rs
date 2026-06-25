@@ -133,9 +133,22 @@ pub async fn run_workers(config: Arc<Config>, pool: SqlitePool) -> Result<()> {
     Ok(())
 }
 
-/// Convenience wrapper: scan → enqueue → run workers.
+/// Convenience wrapper: scan → enqueue → regen-phase → ingest-phase.
+///
+/// Phases run strictly in sequence to keep the number of concurrent TS readers
+/// bounded by `config.ingest.concurrency` and avoid saturating NAS bandwidth.
 pub async fn scan_and_ingest(config: Arc<Config>, pool: SqlitePool) -> Result<()> {
+    // Phase 1: discover new files and stale rows.
     scan_and_enqueue(&config, &pool).await?;
+
+    // Phase 2: rebuild missing captions.pes blobs (non-destructive, DB-backed queue).
+    let queued = enqueue_missing_pes(&config, &pool).await?;
+    if queued > 0 {
+        tracing::info!("scan: {} captions.pes blob(s) queued for regen", queued);
+        run_pes_regen_workers(config.clone(), pool.clone()).await?;
+    }
+
+    // Phase 3: ingest newly queued TS files.
     run_workers(config, pool).await
 }
 
@@ -415,6 +428,207 @@ pub async fn reconcile_deleted(
     }
 
     Ok(count)
+}
+
+// ── captions.pes regen queue ───────────────────────────────────────────────
+//
+// Three-phase pipeline mirroring the main ingest pipeline:
+//   enqueue_missing_pes   — producer: detect missing blobs → pes_regen = 1
+//   run_pes_regen_workers — pool:     spawn concurrency workers, join when done
+//   pes_regen_worker_loop — worker:   atomic claim (1 → 2), regen, reset to 0
+//
+// pes_regen values: 0 = idle, 1 = queued, 2 = active.
+// status stays 'done' throughout — /ingest/status and search are unaffected.
+// db::init_db resets any non-zero pes_regen on startup (crash recovery).
+
+/// Detect `done` files that have captions but whose `captions.pes` blob is
+/// missing from the cache, and mark them `pes_regen = 1` (queued).
+///
+/// Guards:
+/// - Skips entirely when `cache_dir` does not exist (NAS unmounted).
+/// - Skips individual files whose source `.ts` is gone (reconcile_deleted will
+///   clean those DB rows on the same scan cycle anyway).
+///
+/// Returns the number of files newly queued.
+pub async fn enqueue_missing_pes(config: &Config, pool: &SqlitePool) -> Result<usize> {
+    let cache_dir = PathBuf::from(&config.paths.cache_dir);
+
+    if !cache_dir.exists() {
+        tracing::warn!(
+            "enqueue_missing_pes: cache_dir '{}' does not exist — skipping",
+            cache_dir.display()
+        );
+        return Ok(0);
+    }
+
+    // Only consider 'done' files with at least one caption.
+    // Files that have no captions never had a blob written and must not be
+    // queued on every scan cycle (infinite re-detection loop).
+    let rows = sqlx::query!(
+        r#"SELECT id AS "id!: i64", path
+           FROM ts_files
+           WHERE status = 'done'
+             AND pes_regen = 0
+             AND EXISTS (SELECT 1 FROM captions c WHERE c.ts_file_id = id)"#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    if rows.is_empty() {
+        return Ok(0);
+    }
+
+    // Collect candidates: blob absent + TS still on disk.
+    // Path checks run in a blocking thread (many stat(2) calls).
+    struct Candidate {
+        id: i64,
+        path: String,
+    }
+
+    let candidates: Vec<Candidate> = {
+        let cache_dir_c = cache_dir.clone();
+        let rows_owned: Vec<(i64, String)> = rows.into_iter().map(|r| (r.id, r.path)).collect();
+        tokio::task::spawn_blocking(move || {
+            rows_owned
+                .into_iter()
+                .filter(|(_, path)| {
+                    // Skip if the blob already exists.
+                    let blob_ok = cache_subtree(&cache_dir_c, path)
+                        .map(|sub| sub.join("captions.pes").exists())
+                        .unwrap_or(true);
+                    if blob_ok {
+                        return false;
+                    }
+                    // Skip if the source .ts is gone.
+                    Path::new(path).exists()
+                })
+                .map(|(id, path)| Candidate { id, path })
+                .collect::<Vec<_>>()
+        })
+        .await?
+    };
+
+    let count = candidates.len();
+    for c in candidates {
+        sqlx::query!(
+            "UPDATE ts_files SET pes_regen = 1 WHERE id = ? AND pes_regen = 0",
+            c.id,
+        )
+        .execute(pool)
+        .await?;
+        tracing::debug!("enqueue_missing_pes: queued {}", c.path);
+    }
+
+    Ok(count)
+}
+
+/// Spawn `concurrency` parallel workers to drain the `pes_regen = 1` queue.
+/// Mirrors `run_workers`.
+pub async fn run_pes_regen_workers(config: Arc<Config>, pool: SqlitePool) -> Result<()> {
+    let concurrency = config.ingest.concurrency.max(1) as usize;
+    tracing::info!("pes_regen: starting {} worker(s)", concurrency);
+
+    let mut handles = Vec::with_capacity(concurrency);
+    for worker_id in 0..concurrency {
+        let cfg = config.clone();
+        let p = pool.clone();
+        handles.push(tokio::spawn(async move {
+            pes_regen_worker_loop(worker_id, cfg, p).await;
+        }));
+    }
+    for h in handles {
+        let _ = h.await;
+    }
+
+    tracing::info!("pes_regen: all workers done");
+    Ok(())
+}
+
+/// Atomic-claim loop: claim one `pes_regen = 1` row at a time, regenerate the
+/// blob, then reset to 0.  Mirrors `worker_loop`.
+///
+/// On error the row is still reset to 0 — the blob is cache-only, so a failed
+/// regen is logged and skipped; the next scan will re-queue if still needed.
+async fn pes_regen_worker_loop(worker_id: usize, config: Arc<Config>, pool: SqlitePool) {
+    let cache_dir = PathBuf::from(&config.paths.cache_dir);
+    loop {
+        let row = match sqlx::query!(
+            r#"UPDATE ts_files SET pes_regen = 2
+               WHERE id = (SELECT id FROM ts_files WHERE pes_regen = 1 LIMIT 1)
+                 AND pes_regen = 1
+               RETURNING id AS "id!: i64", path AS "path!: String""#,
+        )
+        .fetch_optional(&pool)
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("[regen {}] claim error: {:#}", worker_id, e);
+                break;
+            }
+        };
+
+        match row {
+            None => {
+                tracing::debug!("[regen {}] no more queued blobs, exiting", worker_id);
+                break;
+            }
+            Some(r) => {
+                let ts_path = PathBuf::from(&r.path);
+                let cache_dir_c = cache_dir.clone();
+                tracing::info!("[regen {}] regenerating blob for {}", worker_id, r.path);
+
+                let result = tokio::task::spawn_blocking(move || {
+                    subtitle::regenerate_caption_pes(&ts_path, &cache_dir_c)
+                })
+                .await;
+
+                match result {
+                    Ok(Ok(true)) => {
+                        tracing::info!("[regen {}] blob regenerated: {}", worker_id, r.path);
+                    }
+                    Ok(Ok(false)) => {
+                        tracing::debug!(
+                            "[regen {}] no caption PES in {} (blob skipped)",
+                            worker_id,
+                            r.path
+                        );
+                    }
+                    Ok(Err(e)) => {
+                        tracing::error!(
+                            "[regen {}] regen error for {}: {:#}",
+                            worker_id,
+                            r.path,
+                            e
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "[regen {}] spawn_blocking panic for {}: {:#}",
+                            worker_id,
+                            r.path,
+                            e
+                        );
+                    }
+                }
+
+                // Always reset to idle regardless of outcome.
+                // A failed regen is cache-only; the next scan re-queues if still needed.
+                if let Err(e) =
+                    sqlx::query!("UPDATE ts_files SET pes_regen = 0 WHERE id = ?", r.id,)
+                        .execute(&pool)
+                        .await
+                {
+                    tracing::error!(
+                        "[regen {}] failed to reset pes_regen for id={}: {:#}",
+                        worker_id,
+                        r.id,
+                        e
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// Reset a single TS file: delete captions (FTS synced via captions_ad trigger),

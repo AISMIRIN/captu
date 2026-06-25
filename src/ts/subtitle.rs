@@ -195,6 +195,38 @@ pub fn extract_captions(
     Ok(result)
 }
 
+// ── PES blob recovery ─────────────────────────────────────────────────────
+
+/// Rebuild `captions.pes` from the source TS without touching the DB.
+///
+/// Used when the cache blob was deleted while DB captions remain intact.
+/// Re-demuxes the caption PES from the TS and overwrites (or creates) the blob
+/// at `cache/{stem}/captions.pes`.
+///
+/// Returns `Ok(true)` when a non-empty blob was written, `Ok(false)` when the
+/// TS has no caption stream or produced no PES packets.
+pub fn regenerate_caption_pes(ts_path: &Path, cache_dir: &Path) -> Result<bool> {
+    let psi = pes::scan_psi(ts_path);
+    let caption_pid = match psi.caption_pid {
+        Some(pid) => pid,
+        None => return Ok(false),
+    };
+
+    let pes_list = pes::demux_caption_pes(ts_path, caption_pid);
+    if pes_list.is_empty() {
+        return Ok(false);
+    }
+
+    let stem = ts_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let blob_path = cache_dir.join(&stem).join("captions.pes");
+    pes::write_pes_blob(&blob_path, &pes_list)?;
+    Ok(true)
+}
+
 // ── On-demand rendering ────────────────────────────────────────────────────
 
 /// Returns the path to the subtitle PNG for the given caption, generating it

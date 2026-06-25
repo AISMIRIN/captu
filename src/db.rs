@@ -37,5 +37,11 @@ pub async fn init_db(db_path: &str, max_connections: u32) -> Result<SqlitePool> 
     .execute(&pool)
     .await?;
 
+    // Recover from crashes mid-regen: any in-flight regen state → idle.
+    // The next scan re-detects still-missing blobs and re-queues them.
+    sqlx::query!("UPDATE ts_files SET pes_regen = 0 WHERE pes_regen <> 0")
+        .execute(&pool)
+        .await?;
+
     Ok(pool)
 }

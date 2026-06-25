@@ -80,6 +80,10 @@ pub struct IngestStatusTemplate {
     pub total: i64,
     pub ingesting_files: Vec<String>,
     pub recent_errors: Vec<ErrorEntry>,
+    /// Number of files with pes_regen <> 0 (queued + active).
+    pub regenerating: i64,
+    /// Filenames in the regen queue, active entries (pes_regen=2) first.
+    pub regenerating_files: Vec<String>,
 }
 
 pub async fn status(
@@ -144,6 +148,21 @@ pub async fn status(
         })
         .collect();
 
+    // captions.pes regen queue (pes_regen: 1=queued, 2=active).
+    // status stays 'done', so this is orthogonal to the status-count query above.
+    // Active entries (pes_regen=2) are listed first.
+    let regen_rows = sqlx::query!(
+        "SELECT filename FROM ts_files WHERE pes_regen <> 0 ORDER BY pes_regen DESC, filename",
+    )
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("/ingest/status (regen list) db error: {:#}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    let regenerating_files: Vec<String> = regen_rows.into_iter().map(|r| r.filename).collect();
+    let regenerating = regenerating_files.len() as i64;
+
     Ok(HtmlTemplate(IngestStatusTemplate {
         pending,
         ingesting,
@@ -152,6 +171,8 @@ pub async fn status(
         total,
         ingesting_files,
         recent_errors,
+        regenerating,
+        regenerating_files,
     }))
 }
 
