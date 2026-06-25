@@ -97,3 +97,33 @@ scripts/dev.sh test
 ```
 
 いずれかが失敗した場合は、pushやPR作成の前に必ず修正すること。
+
+## コミット規約
+
+形式: `type: 説明` (一行目) + 任意の本文 + `Co-Authored-By` トレーラー
+
+```
+type: short description
+
+- 変更点の箇条書き (大きい変更のみ)
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+```
+
+**type 一覧**
+
+| type | 用途 |
+|---|---|
+| `feat` | 新機能 |
+| `fix` | バグ修正 |
+| `refactor` | 動作変更を伴わないコード整理 |
+| `test` | テスト追加・修正 |
+| `docs` | ドキュメント・コメントのみ |
+| `ci` | CI/CD・Dockerfile・スクリプト |
+| `perf` | パフォーマンス改善 |
+| `update` | 依存クレート更新・設定更新など |
+
+**ルール**
+- 説明は小文字始まり、命令形
+- 本文は大きな変更のときのみ追加（小さい fix は一行で十分）
+- Claudeが作成したコミットには必ず `Co-Authored-By` を付ける
