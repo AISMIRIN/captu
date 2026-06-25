@@ -16,9 +16,7 @@ pub async fn scan_and_enqueue(config: &Config, pool: &SqlitePool) -> Result<usiz
     let pattern = format!("{}/{}", config.paths.nas_mount, config.paths.ts_glob);
     tracing::info!("ingest scan: pattern = {}", pattern);
 
-    let paths: Vec<PathBuf> = glob::glob(&pattern)?
-        .filter_map(Result::ok)
-        .collect();
+    let paths: Vec<PathBuf> = glob::glob(&pattern)?.filter_map(Result::ok).collect();
     tracing::info!("ingest scan: {} TS files found", paths.len());
 
     // Reconcile before enqueueing: remove DB rows whose .ts no longer exists on disk.
@@ -68,9 +66,7 @@ pub async fn scan_and_enqueue(config: &Config, pool: &SqlitePool) -> Result<usiz
         }
 
         // Include pattern check: empty list means allow all.
-        if !include_patterns.is_empty()
-            && !include_patterns.iter().any(|p| p.matches(&path_str))
-        {
+        if !include_patterns.is_empty() && !include_patterns.iter().any(|p| p.matches(&path_str)) {
             tracing::debug!("ingest filter (not included): {}", path_str);
             continue;
         }
@@ -79,11 +75,10 @@ pub async fn scan_and_enqueue(config: &Config, pool: &SqlitePool) -> Result<usiz
         // find_caption_pid reads PMT-range packets only (~100-1000 × 188 B), fast over NAS.
         if config.ingest.require_captions {
             let path_c = path.clone();
-            let has_cap = tokio::task::spawn_blocking(move || {
-                arib_pes::find_caption_pid(&path_c).is_some()
-            })
-            .await
-            .unwrap_or(false);
+            let has_cap =
+                tokio::task::spawn_blocking(move || arib_pes::find_caption_pid(&path_c).is_some())
+                    .await
+                    .unwrap_or(false);
 
             if !has_cap {
                 tracing::info!("ingest skip (no ARIB caption PID): {}", path_str);
@@ -197,12 +192,7 @@ async fn worker_loop(worker_id: usize, config: Arc<Config>, pool: SqlitePool) {
     }
 }
 
-async fn do_ingest(
-    path: &Path,
-    config: &Config,
-    pool: &SqlitePool,
-    ts_file_id: i64,
-) -> Result<()> {
+async fn do_ingest(path: &Path, config: &Config, pool: &SqlitePool, ts_file_id: i64) -> Result<()> {
     let path_buf = path.to_path_buf();
     let cache_dir = PathBuf::from(&config.paths.cache_dir);
 
@@ -311,10 +301,9 @@ async fn do_ingest(
 /// the cache directory, and the ts_files row itself.
 pub async fn delete_ts_file(pool: &SqlitePool, ts_file_id: i64, cache_dir: &Path) -> Result<()> {
     // Fetch path first — needed for cache dir removal.
-    let path_str =
-        sqlx::query_scalar!("SELECT path FROM ts_files WHERE id = ?", ts_file_id)
-            .fetch_optional(pool)
-            .await?;
+    let path_str = sqlx::query_scalar!("SELECT path FROM ts_files WHERE id = ?", ts_file_id)
+        .fetch_optional(pool)
+        .await?;
 
     let path_str = match path_str {
         Some(p) => p,
@@ -430,15 +419,10 @@ pub async fn reconcile_deleted(
 
 /// Reset a single TS file: delete captions (FTS synced via captions_ad trigger),
 /// clear metadata, and set status back to 'pending'.
-pub async fn reset_ts_file(
-    pool: &SqlitePool,
-    ts_file_id: i64,
-    cache_dir: &Path,
-) -> Result<()> {
-    let path_str =
-        sqlx::query_scalar!("SELECT path FROM ts_files WHERE id = ?", ts_file_id)
-            .fetch_optional(pool)
-            .await?;
+pub async fn reset_ts_file(pool: &SqlitePool, ts_file_id: i64, cache_dir: &Path) -> Result<()> {
+    let path_str = sqlx::query_scalar!("SELECT path FROM ts_files WHERE id = ?", ts_file_id)
+        .fetch_optional(pool)
+        .await?;
 
     let path_str =
         path_str.ok_or_else(|| anyhow::anyhow!("ts_file id={} not found", ts_file_id))?;
@@ -475,15 +459,10 @@ pub async fn reset_ts_file(
 ///
 /// Because status stays 'done', a later scan will not re-ingest the file.
 /// Use `reset_ts_file` if you want the file to be re-ingested on the next run.
-pub async fn clear_subtitles(
-    pool: &SqlitePool,
-    ts_file_id: i64,
-    cache_dir: &Path,
-) -> Result<()> {
-    let path_str =
-        sqlx::query_scalar!("SELECT path FROM ts_files WHERE id = ?", ts_file_id)
-            .fetch_optional(pool)
-            .await?;
+pub async fn clear_subtitles(pool: &SqlitePool, ts_file_id: i64, cache_dir: &Path) -> Result<()> {
+    let path_str = sqlx::query_scalar!("SELECT path FROM ts_files WHERE id = ?", ts_file_id)
+        .fetch_optional(pool)
+        .await?;
 
     let path_str = match path_str {
         Some(p) => p,
@@ -518,18 +497,13 @@ pub async fn clear_subtitles(
 }
 
 /// Reset all TS files belonging to a program.
-pub async fn reset_program(
-    pool: &SqlitePool,
-    program_id: i64,
-    cache_dir: &Path,
-) -> Result<()> {
-    let ids: Vec<i64> =
-        sqlx::query_scalar!(
-            r#"SELECT id as "id!: i64" FROM ts_files WHERE program_id = ?"#,
-            program_id,
-        )
-        .fetch_all(pool)
-        .await?;
+pub async fn reset_program(pool: &SqlitePool, program_id: i64, cache_dir: &Path) -> Result<()> {
+    let ids: Vec<i64> = sqlx::query_scalar!(
+        r#"SELECT id as "id!: i64" FROM ts_files WHERE program_id = ?"#,
+        program_id,
+    )
+    .fetch_all(pool)
+    .await?;
 
     let count = ids.len();
     for id in ids {
