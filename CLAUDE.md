@@ -91,7 +91,7 @@ cache/{ts_stem}/
 scripts/dev.sh fmt --check
 
 # Clippyワーニングなし (CIと同じフラグ)
-scripts/dev.sh clippy -- -D warnings
+scripts/dev.sh clippy --workspace --all-targets -- -D warnings
 
 # テスト全通過
 scripts/dev.sh test

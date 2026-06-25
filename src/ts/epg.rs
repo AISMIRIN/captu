@@ -642,8 +642,8 @@ mod tests {
     #[test]
     fn parse_eit_section_empty_title_returns_none() {
         // Section with a valid event but no title descriptor → None
-        let mut buf = vec![0u8; 14 + 12 + 4]; // header + event (desc_loop_len=0) + CRC
-                                              // desc_loop_len = 0 (bytes 24-25 already 0)
+        let buf = vec![0u8; 14 + 12 + 4]; // header + event (desc_loop_len=0) + CRC
+                                         // desc_loop_len = 0 (bytes 24-25 already 0)
         assert!(parse_eit_section(&buf).is_none());
     }
 
@@ -666,27 +666,9 @@ mod tests {
         let desc_body_4d = 3 + 1 + name_len;
         let desc_total_4d = 2 + desc_body_4d;
 
-        // 0xD5 series_descriptor: dlen=9 → d[0..9]
-        //   d[0..2]=series_id, d[2]=flags, d[3..5]=expire,
-        //   d[5]=ep_high, d[6]=ep_low<<4|last_high, d[7]=last_low, d[8]=name_len
-        let desc_d5: &[u8] = &[
-            0xD5, 0x09, // tag, dlen=9
-            0x00, 0x01, // series_id
-            0x00, // flags
-            0x00, 0x00, // expire
-            0x00, // d[5] ep_high (ep=5 → high bits = 0)
-            0x5C, // d[6] ep_low=5 <<4 | last_high=0x0C>>8=0  → 0x50|0x0C = 0x5C
-            0x00, // d[7] last_low = 0  (last = (0x0C << 8) | 0x00 = 12... wait)
-            0x00, // d[8] name_len=0
-        ];
-        // Recompute: last = ((d[6]&0x0F)<<8)|d[7]
-        // d[6]=0x5C → d[6]&0x0F = 0x0C → last = (0x0C<<8)|0x00 = 0x0C00 = 3072?
-        // That's wrong. For last=12=0x00C: d[6]&0x0F = high nibble of last = 0, d[7] = 12
-        // So d[6] must have lower nibble = 0x00, d[7] = 0x0C
-        // ep=5: d[5]=0x00, d[6] upper nibble = 0x50
-        // last=12: d[6] lower nibble = 0x00, d[7] = 0x0C
-        // d[6] = 0x50 | 0x00 = 0x50, d[7] = 0x0C
-
+        // 0xD5 series_descriptor: ep=5, last=12
+        // ep = (d[5]<<4)|(d[6]>>4): d[5]=0x00, d[6] upper nibble = 0x5 → ep=5
+        // last = ((d[6]&0x0F)<<8)|d[7]: d[6] lower nibble = 0x0, d[7]=0x0C → last=12
         let desc_d5_correct: &[u8] = &[
             0xD5, 0x09, // tag, dlen=9
             0x00, 0x01, // series_id
