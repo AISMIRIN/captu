@@ -69,8 +69,12 @@ pub async fn thumb(
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "unknown".to_string());
-    let path =
-        capture::thumb_path(std::path::Path::new(&state.config.paths.cache_dir), &stem, id, n);
+    let path = capture::thumb_path(
+        std::path::Path::new(&state.config.paths.cache_dir),
+        &stem,
+        id,
+        n,
+    );
 
     serve_jpeg(path).await
 }
@@ -136,8 +140,12 @@ pub async fn full(
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "unknown".to_string());
-    let path =
-        capture::full_path(std::path::Path::new(&state.config.paths.cache_dir), &stem, id, n);
+    let path = capture::full_path(
+        std::path::Path::new(&state.config.paths.cache_dir),
+        &stem,
+        id,
+        n,
+    );
 
     serve_jpeg(path).await
 }
@@ -148,10 +156,7 @@ pub async fn full(
 /// /thumb or /full request regenerates them from the TS file.
 /// Uses the same per-caption lock as `thumb`/`full` to prevent races with
 /// in-flight generation.
-pub async fn recapture(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-) -> Response {
+pub async fn recapture(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
     let (ts_path, _, _) = match lookup_caption(&state, id).await {
         Ok(v) => v,
         Err(s) => return s.into_response(),
@@ -172,10 +177,8 @@ pub async fn recapture(
 
     let cache_dir = std::path::PathBuf::from(&state.config.paths.cache_dir);
 
-    match tokio::task::spawn_blocking(move || {
-        capture::clear_caption_cache(&cache_dir, &stem, id)
-    })
-    .await
+    match tokio::task::spawn_blocking(move || capture::clear_caption_cache(&cache_dir, &stem, id))
+        .await
     {
         Ok(Ok(())) => (StatusCode::OK, "ok").into_response(),
         Ok(Err(e)) => {
@@ -188,10 +191,7 @@ pub async fn recapture(
 
 // ------ helpers ------
 
-async fn lookup_caption(
-    state: &AppState,
-    id: i64,
-) -> Result<(PathBuf, i64, i64), StatusCode> {
+async fn lookup_caption(state: &AppState, id: i64) -> Result<(PathBuf, i64, i64), StatusCode> {
     let row = sqlx::query!(
         "SELECT f.path, c.pts_start, c.pts_end \
          FROM captions c \
@@ -216,8 +216,5 @@ async fn serve_jpeg(path: PathBuf) -> Result<impl IntoResponse, StatusCode> {
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    Ok((
-        [(header::CONTENT_TYPE, "image/jpeg")],
-        Bytes::from(bytes),
-    ))
+    Ok(([(header::CONTENT_TYPE, "image/jpeg")], Bytes::from(bytes)))
 }

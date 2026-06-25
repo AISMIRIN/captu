@@ -20,14 +20,20 @@ pub struct EpgInfo {
 
 // Decode ARIB 5-byte timestamp: MJD(16bit) + BCD time hh:mm:ss(24bit)
 fn decode_mjd_bcd(data: &[u8]) -> Option<DateTime<FixedOffset>> {
-    if data.len() < 5 { return None; }
+    if data.len() < 5 {
+        return None;
+    }
     let mjd = ((data[0] as u32) << 8) | data[1] as u32;
-    if mjd == 0xFFFF { return None; }
+    if mjd == 0xFFFF {
+        return None;
+    }
 
     // MJD to calendar date (algorithm from ARIB STD-B10)
     let yp = ((mjd as f64 - 15078.2) / 365.25) as i32;
     let mp = ((mjd as f64 - 14956.1 - (yp as f64 * 365.25).floor()) / 30.6001) as i32;
-    let day = mjd as i32 - 14956 - (yp as f64 * 365.25).floor() as i32
+    let day = mjd as i32
+        - 14956
+        - (yp as f64 * 365.25).floor() as i32
         - (mp as f64 * 30.6001).floor() as i32;
     let (year, month) = if mp == 14 || mp == 15 {
         (yp + 1901, mp - 13)
@@ -45,20 +51,27 @@ fn decode_mjd_bcd(data: &[u8]) -> Option<DateTime<FixedOffset>> {
         NaiveDate::from_ymd_opt(year, month as u32, day as u32)?,
         NaiveTime::from_hms_opt(h, m, s)?,
     );
-    Some(DateTime::from_naive_utc_and_offset(naive - chrono::Duration::hours(9), jst))
+    Some(DateTime::from_naive_utc_and_offset(
+        naive - chrono::Duration::hours(9),
+        jst,
+    ))
 }
 
 fn bcd_byte(b: u8) -> Option<u8> {
     let hi = b >> 4;
     let lo = b & 0x0F;
-    if hi > 9 || lo > 9 { return None; }
+    if hi > 9 || lo > 9 {
+        return None;
+    }
     Some(hi * 10 + lo)
 }
 
 fn parse_eit_section(data: &[u8]) -> Option<EpgInfo> {
     // Header: table_id(1) + section_syntax(2) + service_id(2) + version(1)
     //         + section/last_section(2) + tsid(2) + onid(2) + seg_last(1) + last_tid(1) = 14 bytes
-    if data.len() < 18 { return None; }
+    if data.len() < 18 {
+        return None;
+    }
 
     let mut pos = 14usize;
     let mut epg = EpgInfo {
@@ -88,7 +101,9 @@ fn parse_eit_section(data: &[u8]) -> Option<EpgInfo> {
             let tag = data[pos];
             let dlen = data[pos + 1] as usize;
             pos += 2;
-            if pos + dlen > desc_end { break; }
+            if pos + dlen > desc_end {
+                break;
+            }
             let d = &data[pos..pos + dlen];
 
             match tag {
@@ -100,7 +115,7 @@ fn parse_eit_section(data: &[u8]) -> Option<EpgInfo> {
                             epg.title = strip_arib_icons(&decode_arib_b24(&d[4..4 + name_len]));
                         }
                         let text_pos = 4 + name_len;
-                        if text_pos + 1 <= dlen {
+                        if text_pos < dlen {
                             let text_len = d[text_pos] as usize;
                             if text_pos + 1 + text_len <= dlen && text_len > 0 {
                                 // short description (short_text) - not stored separately
@@ -113,25 +128,31 @@ fn parse_eit_section(data: &[u8]) -> Option<EpgInfo> {
                     if dlen >= 9 {
                         let ep = ((d[5] as u16) << 4) | ((d[6] as u16) >> 4);
                         let last = (((d[6] & 0x0F) as u16) << 8) | d[7] as u16;
-                        if ep > 0 { epg.episode_number = Some(ep); }
-                        if last > 0 { epg.last_episode = Some(last); }
+                        if ep > 0 {
+                            epg.episode_number = Some(ep);
+                        }
+                        if last > 0 {
+                            epg.last_episode = Some(last);
+                        }
                         let name_len = d[8] as usize;
                         if 9 + name_len <= dlen {
                             let s = decode_arib_b24(&d[9..9 + name_len]);
-                            if !s.is_empty() { epg.series_name = Some(s); }
+                            if !s.is_empty() {
+                                epg.series_name = Some(s);
+                            }
                         }
                     }
                 }
-                0x4E => {
+                0x4E if dlen >= 5 => {
                     // extended_event_descriptor: descriptor_num(4)+last(4)+lang(3)+items_len(1)+items+text_len(1)+text
-                    if dlen >= 5 {
-                        let items_len = d[4] as usize;
-                        let text_pos = 5 + items_len;
-                        if text_pos + 1 <= dlen {
-                            let text_len = d[text_pos] as usize;
-                            if text_pos + 1 + text_len <= dlen && text_len > 0 {
-                                let t = decode_arib_b24(&d[text_pos + 1..text_pos + 1 + text_len]);
-                                if !t.is_empty() { epg.detail = Some(t); }
+                    let items_len = d[4] as usize;
+                    let text_pos = 5 + items_len;
+                    if text_pos < dlen {
+                        let text_len = d[text_pos] as usize;
+                        if text_pos + 1 + text_len <= dlen && text_len > 0 {
+                            let t = decode_arib_b24(&d[text_pos + 1..text_pos + 1 + text_len]);
+                            if !t.is_empty() {
+                                epg.detail = Some(t);
                             }
                         }
                     }
@@ -141,10 +162,16 @@ fn parse_eit_section(data: &[u8]) -> Option<EpgInfo> {
             pos += dlen;
         }
         pos = desc_end;
-        if !epg.title.is_empty() { break; }
+        if !epg.title.is_empty() {
+            break;
+        }
     }
 
-    if epg.title.is_empty() { None } else { Some(epg) }
+    if epg.title.is_empty() {
+        None
+    } else {
+        Some(epg)
+    }
 }
 
 // Scan EIT on PID=0x0012.
@@ -165,19 +192,31 @@ fn scan_eit(file: &mut File, service_ids: &[u16], max_packets: u32) -> Option<Ve
     let mut expected = 0usize;
 
     for _ in 0..max_packets {
-        if file.read_exact(&mut packet).is_err() { return None; }
-        if packet[0] != 0x47 { continue; }
+        if file.read_exact(&mut packet).is_err() {
+            return None;
+        }
+        if packet[0] != 0x47 {
+            continue;
+        }
 
         let pid = ((packet[1] as u16 & 0x1F) << 8) | packet[2] as u16;
-        if pid != 0x0012 { continue; }
+        if pid != 0x0012 {
+            continue;
+        }
 
         let pusi = (packet[1] & 0x40) != 0;
         let afc = (packet[3] & 0x30) >> 4;
-        if afc == 2 { continue; }
+        if afc == 2 {
+            continue;
+        }
 
         let mut ps = 4usize;
-        if afc == 3 { ps = 5 + packet[4] as usize; }
-        if ps >= 188 { continue; }
+        if afc == 3 {
+            ps = 5 + packet[4] as usize;
+        }
+        if ps >= 188 {
+            continue;
+        }
 
         if pusi {
             let ptr = packet[ps] as usize;
@@ -201,20 +240,30 @@ fn scan_eit(file: &mut File, service_ids: &[u16], max_packets: u32) -> Option<Ve
 
             // --- New section starts at ps + ptr ---
             ps += ptr;
-            if ps + 8 > 188 { continue; }
+            if ps + 8 > 188 {
+                continue;
+            }
 
             let table_id = packet[ps];
             // Only EIT[p/f] present/following (0x4E). Schedule tables (0x50-0x6F)
             // span the full day and would return the previous programme.
-            if table_id != 0x4E { continue; }
-            if packet[ps + 1] & 0x80 == 0 { continue; }
+            if table_id != 0x4E {
+                continue;
+            }
+            if packet[ps + 1] & 0x80 == 0 {
+                continue;
+            }
 
             // service_id filter (bytes 3-4 of the section)
             let sec_svc = ((packet[ps + 3] as u16) << 8) | packet[ps + 4] as u16;
-            if !service_ids.is_empty() && !service_ids.contains(&sec_svc) { continue; }
+            if !service_ids.is_empty() && !service_ids.contains(&sec_svc) {
+                continue;
+            }
 
             // section_number=0: current event (present). section_number=1 is "following".
-            if packet[ps + 6] != 0 { continue; }
+            if packet[ps + 6] != 0 {
+                continue;
+            }
 
             let slen = (((packet[ps + 1] as usize) & 0x0F) << 8) | packet[ps + 2] as usize;
             let total = 3 + slen;
@@ -284,11 +333,17 @@ fn parse_digits_at(s: &str) -> Option<(u16, usize)> {
             break;
         };
         val = val * 10 + d;
-        if val > 9999 { break; }
+        if val > 9999 {
+            break;
+        }
         byte_len += c.len_utf8();
         found = true;
     }
-    if found && val <= u16::MAX as u32 { Some((val as u16, byte_len)) } else { None }
+    if found && val <= u16::MAX as u32 {
+        Some((val as u16, byte_len))
+    } else {
+        None
+    }
 }
 
 // Derive series_title, episode_number, and sub_title from a raw EIT event title.
@@ -324,7 +379,11 @@ fn extract_series_episode(raw_title: &str) -> (String, Option<u16>, Option<Strin
                 return (
                     series,
                     Some(n),
-                    if sub.is_empty() { None } else { Some(sub.to_string()) },
+                    if sub.is_empty() {
+                        None
+                    } else {
+                        Some(sub.to_string())
+                    },
                 );
             }
         }
@@ -351,7 +410,11 @@ fn extract_series_episode(raw_title: &str) -> (String, Option<u16>, Option<Strin
                 return (
                     series,
                     Some(n),
-                    if sub.is_empty() { None } else { Some(sub.to_string()) },
+                    if sub.is_empty() {
+                        None
+                    } else {
+                        Some(sub.to_string())
+                    },
                 );
             }
         }
@@ -366,7 +429,15 @@ fn extract_series_episode(raw_title: &str) -> (String, Option<u16>, Option<Strin
         let series = title[..pos].to_string();
         let sub_raw = title[pos..].trim();
         let sub = strip_broadcast_flags(sub_raw);
-        (series, None, if sub.is_empty() { None } else { Some(sub.to_string()) })
+        (
+            series,
+            None,
+            if sub.is_empty() {
+                None
+            } else {
+                Some(sub.to_string())
+            },
+        )
     } else {
         (title.to_string(), None, None)
     }
@@ -382,6 +453,66 @@ fn fill_series_episode(mut epg: EpgInfo) -> EpgInfo {
         epg.episode_number = ep_from_title;
     }
     epg
+}
+
+// ── Public entry point ────────────────────────────────────────────────────────
+
+/// Extract EPG info from the TS file.
+///
+/// `caption_services` must be the service IDs returned by `pes::scan_psi`
+/// (or an empty slice to scan all services).  Passing them in avoids
+/// re-reading the PAT/PMT — callers should run `scan_psi` once and share
+/// the result between `extract_epg` and `extract_captions`.
+pub fn extract_epg(ts_path: &Path, caption_services: &[u16]) -> Result<EpgInfo> {
+    let file_size = std::fs::metadata(ts_path)?.len();
+    let caption_svcs = caption_services.to_vec();
+
+    // Seek to 20% of file (KonomiTV's trick):
+    // skips recording start margin where EIT still shows the previous programme.
+    // Use 600K packet window (≈ 113 MB ≈ 2.5 s at 360 Mbit/s) to ensure at least
+    // one full EIT[p/f] present cycle is captured even on テレビ朝日 with large sections.
+    if file_size > 500_000 {
+        let offset_20 = (file_size * 20 / 100 / 188) * 188; // align to TS packet boundary
+        let mut file = File::open(ts_path)?;
+        if file.seek(SeekFrom::Start(offset_20)).is_ok() {
+            if let Some(data) = scan_eit(&mut file, &caption_svcs, 600_000) {
+                if let Some(epg) = parse_eit_section(&data) {
+                    return Ok(fill_series_episode(epg));
+                }
+            }
+        }
+    }
+
+    // Fallback: scan from the beginning (short files / single-service TS)
+    let mut file = File::open(ts_path)?;
+    if let Some(data) = scan_eit(&mut file, &caption_svcs, 300_000) {
+        if let Some(epg) = parse_eit_section(&data) {
+            return Ok(fill_series_episode(epg));
+        }
+    }
+
+    // Last resort: mtime as air_date
+    use std::time::UNIX_EPOCH;
+    let air_datetime = std::fs::metadata(ts_path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .and_then(|d| {
+            let secs = d.as_secs() as i64;
+            let jst = FixedOffset::east_opt(9 * 3600)?;
+            Some(DateTime::from_timestamp(secs, 0)?.with_timezone(&jst))
+        });
+
+    Ok(EpgInfo {
+        title: String::from("(unknown)"),
+        series_title: String::new(),
+        sub_title: None,
+        episode_number: None,
+        last_episode: None,
+        series_name: None,
+        air_datetime,
+        detail: None,
+    })
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -487,11 +618,11 @@ mod tests {
         // Actually let's use the standard: MJD of 2000-01-01 = 51544
         // BCD time: 12:00:00
         let data: [u8; 5] = [
-            (51544u16 >> 8) as u8,  // MJD high byte
+            (51544u16 >> 8) as u8,   // MJD high byte
             (51544u16 & 0xFF) as u8, // MJD low byte
-            0x12, // BCD 12
-            0x00, // BCD 00
-            0x00, // BCD 00
+            0x12,                    // BCD 12
+            0x00,                    // BCD 00
+            0x00,                    // BCD 00
         ];
         let dt = decode_mjd_bcd(&data).expect("should decode");
         assert_eq!(dt.date_naive().to_string(), "2000-01-01");
@@ -518,63 +649,4 @@ mod tests {
         let data: [u8; 5] = [0xC8, 0x00, 0x9A, 0x00, 0x00];
         assert!(decode_mjd_bcd(&data).is_none());
     }
-}
-
-// ── Public entry point ────────────────────────────────────────────────────────
-
-/// Extract EPG info from the TS file.
-///
-/// `caption_services` must be the service IDs returned by `pes::scan_psi`
-/// (or an empty slice to scan all services).  Passing them in avoids
-/// re-reading the PAT/PMT — callers should run `scan_psi` once and share
-/// the result between `extract_epg` and `extract_captions`.
-pub fn extract_epg(ts_path: &Path, caption_services: &[u16]) -> Result<EpgInfo> {
-    let file_size = std::fs::metadata(ts_path)?.len();
-    let caption_svcs = caption_services.to_vec();
-
-    // Seek to 20% of file (KonomiTV's trick):
-    // skips recording start margin where EIT still shows the previous programme.
-    // Use 600K packet window (≈ 113 MB ≈ 2.5 s at 360 Mbit/s) to ensure at least
-    // one full EIT[p/f] present cycle is captured even on テレビ朝日 with large sections.
-    if file_size > 500_000 {
-        let offset_20 = (file_size * 20 / 100 / 188) * 188; // align to TS packet boundary
-        let mut file = File::open(ts_path)?;
-        if file.seek(SeekFrom::Start(offset_20)).is_ok() {
-            if let Some(data) = scan_eit(&mut file, &caption_svcs, 600_000) {
-                if let Some(epg) = parse_eit_section(&data) {
-                    return Ok(fill_series_episode(epg));
-                }
-            }
-        }
-    }
-
-    // Fallback: scan from the beginning (short files / single-service TS)
-    let mut file = File::open(ts_path)?;
-    if let Some(data) = scan_eit(&mut file, &caption_svcs, 300_000) {
-        if let Some(epg) = parse_eit_section(&data) {
-            return Ok(fill_series_episode(epg));
-        }
-    }
-
-    // Last resort: mtime as air_date
-    use std::time::UNIX_EPOCH;
-    let air_datetime = std::fs::metadata(ts_path).ok()
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .and_then(|d| {
-            let secs = d.as_secs() as i64;
-            let jst = FixedOffset::east_opt(9 * 3600)?;
-            Some(DateTime::from_timestamp(secs, 0)?.with_timezone(&jst))
-        });
-
-    Ok(EpgInfo {
-        title: String::from("(unknown)"),
-        series_title: String::new(),
-        sub_title: None,
-        episode_number: None,
-        last_episode: None,
-        series_name: None,
-        air_datetime,
-        detail: None,
-    })
 }

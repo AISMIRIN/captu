@@ -18,10 +18,14 @@ use crate::ts::subtitle;
 /// `pts_start_ms` is very small).
 fn frame_indices(pts_start_ms: i64, pts_end_ms: i64, count: usize, fps: f64) -> Vec<u64> {
     let pts_start_sec = pts_start_ms as f64 / 1000.0;
-    let pts_end_sec   = pts_end_ms   as f64 / 1000.0;
-    let pre_seek  = (pts_start_sec - 6.0).max(0.0);
+    let pts_end_sec = pts_end_ms as f64 / 1000.0;
+    let pre_seek = (pts_start_sec - 6.0).max(0.0);
     let win_start = pts_start_sec + 1.5;
-    let win_end   = if pts_end_sec > win_start { pts_end_sec } else { win_start + 0.5 };
+    let win_end = if pts_end_sec > win_start {
+        pts_end_sec
+    } else {
+        win_start + 0.5
+    };
 
     (0..count)
         .map(|k| {
@@ -132,10 +136,11 @@ struct CaptureParams<'a> {
 fn run_ffmpeg(p: &CaptureParams<'_>) -> Result<std::process::Output> {
     let input_url = format!("file:{}", p.ts_path.to_str().unwrap_or(""));
     let pre_seek_str = format!("{:.6}", p.pre_seek);
-    let dur_str      = format!("{:.6}", p.dur);
-    let q_str        = p.quality.to_string();
+    let dur_str = format!("{:.6}", p.dur);
+    let q_str = p.quality.to_string();
 
-    let select_expr = p.frame_nums
+    let select_expr = p
+        .frame_nums
         .iter()
         .map(|n| format!("eq(n\\,{})", n))
         .collect::<Vec<_>>()
@@ -155,14 +160,22 @@ fn run_ffmpeg(p: &CaptureParams<'_>) -> Result<std::process::Output> {
         Command::new("ffmpeg")
             .args([
                 "-y",
-                "-ss", &pre_seek_str,
-                "-t",  &dur_str,
-                "-i",  &input_url,
-                "-i",  sub_str,
-                "-filter_complex", &filter,
-                "-map", "[out]",
-                "-fps_mode", "vfr",
-                "-q:v", &q_str,
+                "-ss",
+                &pre_seek_str,
+                "-t",
+                &dur_str,
+                "-i",
+                &input_url,
+                "-i",
+                sub_str,
+                "-filter_complex",
+                &filter,
+                "-map",
+                "[out]",
+                "-fps_mode",
+                "vfr",
+                "-q:v",
+                &q_str,
                 p.out_pattern,
             ])
             .output()?
@@ -174,12 +187,18 @@ fn run_ffmpeg(p: &CaptureParams<'_>) -> Result<std::process::Output> {
         Command::new("ffmpeg")
             .args([
                 "-y",
-                "-ss", &pre_seek_str,
-                "-t",  &dur_str,
-                "-i",  &input_url,
-                "-vf", &vf,
-                "-fps_mode", "vfr",
-                "-q:v", &q_str,
+                "-ss",
+                &pre_seek_str,
+                "-t",
+                &dur_str,
+                "-i",
+                &input_url,
+                "-vf",
+                &vf,
+                "-fps_mode",
+                "vfr",
+                "-q:v",
+                &q_str,
                 p.out_pattern,
             ])
             .output()?
@@ -215,20 +234,23 @@ pub fn ensure_thumbnails(
     std::fs::create_dir_all(&thumbs_dir)?;
 
     let pts_start_sec = pts_start_ms as f64 / 1000.0;
-    let pts_end_sec   = pts_end_ms   as f64 / 1000.0;
+    let pts_end_sec = pts_end_ms as f64 / 1000.0;
 
-    let pre_seek  = (pts_start_sec - 6.0).max(0.0);
+    let pre_seek = (pts_start_sec - 6.0).max(0.0);
     let win_start = pts_start_sec + 1.5;
-    let win_end   = if pts_end_sec > win_start { pts_end_sec } else { win_start + 0.5 };
-    let dur       = (win_end - pre_seek) + 0.5;
+    let win_end = if pts_end_sec > win_start {
+        pts_end_sec
+    } else {
+        win_start + 0.5
+    };
+    let dur = (win_end - pre_seek) + 0.5;
 
     // Terrestrial broadcast: 29.97 fps = 30000/1001.
     let fps = 30_000.0_f64 / 1001.0;
     let frame_nums = frame_indices(pts_start_ms, pts_end_ms, count, fps);
 
-    let sub_png_opt = subtitle::ensure_caption_png(
-        &cfg.capture, cache_dir, ts_path, id, pts_start_ms,
-    )?;
+    let sub_png_opt =
+        subtitle::ensure_caption_png(&cfg.capture, cache_dir, ts_path, id, pts_start_ms)?;
 
     let tmp_pattern = thumbs_dir.join("_tmp_%d.jpg");
     let tmp_str = tmp_pattern.to_str().unwrap_or("").to_string();
@@ -239,8 +261,8 @@ pub fn ensure_thumbnails(
         dur,
         frame_nums: &frame_nums,
         sub_png: sub_png_opt.as_deref(),
-        width:   cfg.capture.thumb_width,
-        height:  cfg.capture.thumb_height,
+        width: cfg.capture.thumb_width,
+        height: cfg.capture.thumb_height,
         quality: cfg.capture.thumb_quality,
         out_pattern: &tmp_str,
     })?;
@@ -301,25 +323,32 @@ pub fn ensure_full(
 
     let count = cfg.capture.thumb_count as usize;
     let pts_start_sec = pts_start_ms as f64 / 1000.0;
-    let pts_end_sec   = pts_end_ms   as f64 / 1000.0;
+    let pts_end_sec = pts_end_ms as f64 / 1000.0;
 
-    let pre_seek  = (pts_start_sec - 6.0).max(0.0);
+    let pre_seek = (pts_start_sec - 6.0).max(0.0);
     let win_start = pts_start_sec + 1.5;
-    let win_end   = if pts_end_sec > win_start { pts_end_sec } else { win_start + 0.5 };
-    let dur       = (win_end - pre_seek) + 0.5;
+    let win_end = if pts_end_sec > win_start {
+        pts_end_sec
+    } else {
+        win_start + 0.5
+    };
+    let dur = (win_end - pre_seek) + 0.5;
 
     let fps = 30_000.0_f64 / 1001.0;
     let all_frames = frame_indices(pts_start_ms, pts_end_ms, count, fps);
 
     // Select only frame n from the pre-computed sequence.
     let frame_num = all_frames.get(n as usize).copied().unwrap_or_else(|| {
-        tracing::warn!("full: frame index {} out of range for caption {}, using 0", n, id);
+        tracing::warn!(
+            "full: frame index {} out of range for caption {}, using 0",
+            n,
+            id
+        );
         0
     });
 
-    let sub_png_opt = subtitle::ensure_caption_png(
-        &cfg.capture, cache_dir, ts_path, id, pts_start_ms,
-    )?;
+    let sub_png_opt =
+        subtitle::ensure_caption_png(&cfg.capture, cache_dir, ts_path, id, pts_start_ms)?;
 
     let dst_str = dst.to_str().unwrap_or("").to_string();
 
@@ -329,8 +358,8 @@ pub fn ensure_full(
         dur,
         frame_nums: &[frame_num],
         sub_png: sub_png_opt.as_deref(),
-        width:   cfg.capture.width,
-        height:  cfg.capture.height,
+        width: cfg.capture.width,
+        height: cfg.capture.height,
         quality: cfg.capture.jpeg_quality,
         out_pattern: &dst_str,
     })?;
@@ -446,7 +475,10 @@ mod tests {
         // Very negative PTS → relative time is negative → frame index must be 0, not panic.
         let frames = frame_indices(-10_000, -5_000, 3, FPS);
         for f in &frames {
-            assert_eq!(*f, 0, "frame index must clamp to 0 for negative relative time");
+            assert_eq!(
+                *f, 0,
+                "frame index must clamp to 0 for negative relative time"
+            );
         }
     }
 
