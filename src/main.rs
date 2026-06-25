@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use axum::{routing::{get, post}, Router};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
@@ -29,8 +32,7 @@ async fn main() -> anyhow::Result<()> {
     let pool = db::init_db(&config.paths.db_path, config.ingest.concurrency + 5).await?;
 
     // Shared so a scheduled tick won't overlap the startup scan or another tick.
-    let ingest_guard: scheduler::IngestGuard =
-        std::sync::Arc::new(tokio::sync::Mutex::new(()));
+    let ingest_guard: scheduler::IngestGuard = std::sync::Arc::new(tokio::sync::Mutex::new(()));
 
     if config.ingest.run_on_startup {
         let cfg = config.clone();
@@ -46,8 +48,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Keep the scheduler alive for the whole process lifetime (drop = stop).
-    let _scheduler =
-        scheduler::start(config.clone(), pool.clone(), ingest_guard).await?;
+    let _scheduler = scheduler::start(config.clone(), pool.clone(), ingest_guard).await?;
 
     let state = routes::AppState {
         pool,

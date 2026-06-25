@@ -84,15 +84,14 @@ pub struct IngestStatusTemplate {
 
 pub async fn status(State(state): State<AppState>) -> Result<IngestStatusTemplate, StatusCode> {
     // Aggregate status counts.
-    let count_rows = sqlx::query!(
-        r#"SELECT status, COUNT(*) AS "cnt!: i64" FROM ts_files GROUP BY status"#
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("/ingest/status db error: {:#}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let count_rows =
+        sqlx::query!(r#"SELECT status, COUNT(*) AS "cnt!: i64" FROM ts_files GROUP BY status"#)
+            .fetch_all(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("/ingest/status db error: {:#}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
     let mut pending = 0i64;
     let mut ingesting = 0i64;
@@ -101,25 +100,23 @@ pub async fn status(State(state): State<AppState>) -> Result<IngestStatusTemplat
 
     for row in &count_rows {
         match row.status.as_str() {
-            "pending"   => pending   = row.cnt,
+            "pending" => pending = row.cnt,
             "ingesting" => ingesting = row.cnt,
-            "done"      => done      = row.cnt,
-            "error"     => error     = row.cnt,
+            "done" => done = row.cnt,
+            "error" => error = row.cnt,
             _ => {}
         }
     }
     let total = pending + ingesting + done + error;
 
     // List files currently being ingested.
-    let ing_rows = sqlx::query!(
-        "SELECT filename FROM ts_files WHERE status = 'ingesting'",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("/ingest/status (ingesting list) db error: {:#}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let ing_rows = sqlx::query!("SELECT filename FROM ts_files WHERE status = 'ingesting'",)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("/ingest/status (ingesting list) db error: {:#}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     let ingesting_files: Vec<String> = ing_rows.into_iter().map(|r| r.filename).collect();
 
     // Most recent errors (up to 5).
@@ -162,12 +159,7 @@ pub async fn files(
     Query(params): Query<FilesParams>,
 ) -> Result<IngestFilesTemplate, StatusCode> {
     let q = params.q.as_deref().unwrap_or("").trim().to_string();
-    let status_filter = params
-        .status
-        .as_deref()
-        .unwrap_or("all")
-        .trim()
-        .to_string();
+    let status_filter = params.status.as_deref().unwrap_or("all").trim().to_string();
     let page = params.page.unwrap_or(0).max(0);
     let offset = page * FILE_PAGE_SIZE;
 
@@ -206,13 +198,10 @@ pub async fn files(
         qb.push_bind(FILE_PAGE_SIZE);
         qb.push(" OFFSET ");
         qb.push_bind(offset);
-        qb.build()
-            .fetch_all(&state.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("/ingest/files list error: {:#}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?
+        qb.build().fetch_all(&state.pool).await.map_err(|e| {
+            tracing::error!("/ingest/files list error: {:#}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
     };
 
     let file_items: Vec<FileListItem> = rows
@@ -265,7 +254,9 @@ fn push_files_where(qb: &mut QueryBuilder<Sqlite>, bind_q: Option<&str>, status_
 
     if let Some(bq) = bind_q {
         cond!(qb, n);
-        qb.push("f.filename LIKE ").push_bind(bq.to_owned()).push(" ESCAPE '\\'");
+        qb.push("f.filename LIKE ")
+            .push_bind(bq.to_owned())
+            .push(" ESCAPE '\\'");
     }
     if status_filter != "all" {
         cond!(qb, n);
@@ -306,7 +297,11 @@ pub async fn file_detail(
             error_msg: row.error_msg,
             // ingested_at is DATETIME; chrono decodes as NaiveDateTime — convert to String.
             ingested_at: row.ingested_at.map(|dt| dt.to_string()),
-            display_title: display_title(&row.title, row.episode_number, row.episode_title.as_deref()),
+            display_title: display_title(
+                &row.title,
+                row.episode_number,
+                row.episode_title.as_deref(),
+            ),
             // air_date is DATE; chrono decodes as NaiveDate — convert to String.
             air_date: row.air_date.map(|d| d.to_string()),
             caption_count: row.caption_count,
