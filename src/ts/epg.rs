@@ -115,7 +115,7 @@ fn parse_eit_section(data: &[u8]) -> Option<EpgInfo> {
                             epg.title = strip_arib_icons(&decode_arib_b24(&d[4..4 + name_len]));
                         }
                         let text_pos = 4 + name_len;
-                        if text_pos + 1 <= dlen {
+                        if text_pos < dlen {
                             let text_len = d[text_pos] as usize;
                             if text_pos + 1 + text_len <= dlen && text_len > 0 {
                                 // short description (short_text) - not stored separately
@@ -143,18 +143,16 @@ fn parse_eit_section(data: &[u8]) -> Option<EpgInfo> {
                         }
                     }
                 }
-                0x4E => {
+                0x4E if dlen >= 5 => {
                     // extended_event_descriptor: descriptor_num(4)+last(4)+lang(3)+items_len(1)+items+text_len(1)+text
-                    if dlen >= 5 {
-                        let items_len = d[4] as usize;
-                        let text_pos = 5 + items_len;
-                        if text_pos + 1 <= dlen {
-                            let text_len = d[text_pos] as usize;
-                            if text_pos + 1 + text_len <= dlen && text_len > 0 {
-                                let t = decode_arib_b24(&d[text_pos + 1..text_pos + 1 + text_len]);
-                                if !t.is_empty() {
-                                    epg.detail = Some(t);
-                                }
+                    let items_len = d[4] as usize;
+                    let text_pos = 5 + items_len;
+                    if text_pos < dlen {
+                        let text_len = d[text_pos] as usize;
+                        if text_pos + 1 + text_len <= dlen && text_len > 0 {
+                            let t = decode_arib_b24(&d[text_pos + 1..text_pos + 1 + text_len]);
+                            if !t.is_empty() {
+                                epg.detail = Some(t);
                             }
                         }
                     }
@@ -457,6 +455,66 @@ fn fill_series_episode(mut epg: EpgInfo) -> EpgInfo {
     epg
 }
 
+// ── Public entry point ────────────────────────────────────────────────────────
+
+/// Extract EPG info from the TS file.
+///
+/// `caption_services` must be the service IDs returned by `pes::scan_psi`
+/// (or an empty slice to scan all services).  Passing them in avoids
+/// re-reading the PAT/PMT — callers should run `scan_psi` once and share
+/// the result between `extract_epg` and `extract_captions`.
+pub fn extract_epg(ts_path: &Path, caption_services: &[u16]) -> Result<EpgInfo> {
+    let file_size = std::fs::metadata(ts_path)?.len();
+    let caption_svcs = caption_services.to_vec();
+
+    // Seek to 20% of file (KonomiTV's trick):
+    // skips recording start margin where EIT still shows the previous programme.
+    // Use 600K packet window (≈ 113 MB ≈ 2.5 s at 360 Mbit/s) to ensure at least
+    // one full EIT[p/f] present cycle is captured even on テレビ朝日 with large sections.
+    if file_size > 500_000 {
+        let offset_20 = (file_size * 20 / 100 / 188) * 188; // align to TS packet boundary
+        let mut file = File::open(ts_path)?;
+        if file.seek(SeekFrom::Start(offset_20)).is_ok() {
+            if let Some(data) = scan_eit(&mut file, &caption_svcs, 600_000) {
+                if let Some(epg) = parse_eit_section(&data) {
+                    return Ok(fill_series_episode(epg));
+                }
+            }
+        }
+    }
+
+    // Fallback: scan from the beginning (short files / single-service TS)
+    let mut file = File::open(ts_path)?;
+    if let Some(data) = scan_eit(&mut file, &caption_svcs, 300_000) {
+        if let Some(epg) = parse_eit_section(&data) {
+            return Ok(fill_series_episode(epg));
+        }
+    }
+
+    // Last resort: mtime as air_date
+    use std::time::UNIX_EPOCH;
+    let air_datetime = std::fs::metadata(ts_path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .and_then(|d| {
+            let secs = d.as_secs() as i64;
+            let jst = FixedOffset::east_opt(9 * 3600)?;
+            Some(DateTime::from_timestamp(secs, 0)?.with_timezone(&jst))
+        });
+
+    Ok(EpgInfo {
+        title: String::from("(unknown)"),
+        series_title: String::new(),
+        sub_title: None,
+        episode_number: None,
+        last_episode: None,
+        series_name: None,
+        air_datetime,
+        detail: None,
+    })
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -591,64 +649,4 @@ mod tests {
         let data: [u8; 5] = [0xC8, 0x00, 0x9A, 0x00, 0x00];
         assert!(decode_mjd_bcd(&data).is_none());
     }
-}
-
-// ── Public entry point ────────────────────────────────────────────────────────
-
-/// Extract EPG info from the TS file.
-///
-/// `caption_services` must be the service IDs returned by `pes::scan_psi`
-/// (or an empty slice to scan all services).  Passing them in avoids
-/// re-reading the PAT/PMT — callers should run `scan_psi` once and share
-/// the result between `extract_epg` and `extract_captions`.
-pub fn extract_epg(ts_path: &Path, caption_services: &[u16]) -> Result<EpgInfo> {
-    let file_size = std::fs::metadata(ts_path)?.len();
-    let caption_svcs = caption_services.to_vec();
-
-    // Seek to 20% of file (KonomiTV's trick):
-    // skips recording start margin where EIT still shows the previous programme.
-    // Use 600K packet window (≈ 113 MB ≈ 2.5 s at 360 Mbit/s) to ensure at least
-    // one full EIT[p/f] present cycle is captured even on テレビ朝日 with large sections.
-    if file_size > 500_000 {
-        let offset_20 = (file_size * 20 / 100 / 188) * 188; // align to TS packet boundary
-        let mut file = File::open(ts_path)?;
-        if file.seek(SeekFrom::Start(offset_20)).is_ok() {
-            if let Some(data) = scan_eit(&mut file, &caption_svcs, 600_000) {
-                if let Some(epg) = parse_eit_section(&data) {
-                    return Ok(fill_series_episode(epg));
-                }
-            }
-        }
-    }
-
-    // Fallback: scan from the beginning (short files / single-service TS)
-    let mut file = File::open(ts_path)?;
-    if let Some(data) = scan_eit(&mut file, &caption_svcs, 300_000) {
-        if let Some(epg) = parse_eit_section(&data) {
-            return Ok(fill_series_episode(epg));
-        }
-    }
-
-    // Last resort: mtime as air_date
-    use std::time::UNIX_EPOCH;
-    let air_datetime = std::fs::metadata(ts_path)
-        .ok()
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .and_then(|d| {
-            let secs = d.as_secs() as i64;
-            let jst = FixedOffset::east_opt(9 * 3600)?;
-            Some(DateTime::from_timestamp(secs, 0)?.with_timezone(&jst))
-        });
-
-    Ok(EpgInfo {
-        title: String::from("(unknown)"),
-        series_title: String::new(),
-        sub_title: None,
-        episode_number: None,
-        last_episode: None,
-        series_name: None,
-        air_datetime,
-        detail: None,
-    })
 }

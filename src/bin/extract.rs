@@ -131,7 +131,7 @@ mod tests {
     #[test]
     fn format_ms_mixed() {
         // 1h 2m 3s 456ms
-        let ms = 1 * 3_600_000 + 2 * 60_000 + 3 * 1_000 + 456;
+        let ms = 3_600_000 + 2 * 60_000 + 3 * 1_000 + 456;
         assert_eq!(format_ms(ms), "01:02:03.456");
     }
 
