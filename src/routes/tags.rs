@@ -42,10 +42,7 @@ pub struct TagOptionsTemplate {
 
 /// Response header announcing that the global tag list changed.
 /// htmx listeners with `hx-trigger="tagsChanged from:body"` will re-fetch /api/tags.
-const HX_TRIGGER: (HeaderName, &str) = (
-    HeaderName::from_static("hx-trigger"),
-    "tagsChanged",
-);
+const HX_TRIGGER: (HeaderName, &str) = (HeaderName::from_static("hx-trigger"), "tagsChanged");
 
 /// Wrap a TagsFragment with the tagsChanged trigger header.
 fn with_tags_trigger(frag: TagsFragment) -> impl IntoResponse {
@@ -79,7 +76,10 @@ pub async fn add_tag(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    Ok(with_tags_trigger(TagsFragment { caption_id: id, tags }))
+    Ok(with_tags_trigger(TagsFragment {
+        caption_id: id,
+        tags,
+    }))
 }
 
 /// POST /caption/:id/tags/delete — remove a tag.
@@ -90,24 +90,23 @@ pub async fn delete_tag(
 ) -> Result<impl IntoResponse, StatusCode> {
     let tag = form.tag.trim().to_string();
 
-    sqlx::query!(
-        "DELETE FROM tags WHERE caption_id = ? AND tag = ?",
-        id,
-        tag,
-    )
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("delete_tag {}/{:?}: {:#}", id, tag, e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    sqlx::query!("DELETE FROM tags WHERE caption_id = ? AND tag = ?", id, tag,)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("delete_tag {}/{:?}: {:#}", id, tag, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let tags = load_tags(&state.pool, id).await.map_err(|e| {
         tracing::error!("load_tags after delete {}: {:#}", id, e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    Ok(with_tags_trigger(TagsFragment { caption_id: id, tags }))
+    Ok(with_tags_trigger(TagsFragment {
+        caption_id: id,
+        tags,
+    }))
 }
 
 /// GET /api/tags — list all distinct tags for autocomplete and filter select.
