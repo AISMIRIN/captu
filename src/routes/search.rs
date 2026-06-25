@@ -49,7 +49,11 @@ where
         None => Ok(None),
         Some(v) => {
             let trimmed = v.trim().to_string();
-            if trimmed.is_empty() { Ok(None) } else { Ok(Some(trimmed)) }
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(trimmed))
+            }
         }
     }
 }
@@ -152,11 +156,7 @@ pub async fn search(
     Query(params): Query<SearchParams>,
 ) -> Result<SearchResultsTemplate, StatusCode> {
     let q = params.q.as_deref().unwrap_or("").trim().to_string();
-    let filter = params
-        .filter
-        .as_deref()
-        .unwrap_or("all")
-        .to_string();
+    let filter = params.filter.as_deref().unwrap_or("all").to_string();
     let page = params.page.unwrap_or(0).clamp(0, MAX_PAGE);
     let rep_frame = state.config.capture.thumb_count as i64 / 2;
 
@@ -189,13 +189,14 @@ pub async fn search(
         });
     }
 
-    let (results, total) =
-        run_search(&state, active_q, &params, &tag_list, &filter, page, rep_frame)
-            .await
-            .map_err(|e| {
-                tracing::error!("search error: {:#}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+    let (results, total) = run_search(
+        &state, active_q, &params, &tag_list, &filter, page, rep_frame,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("search error: {:#}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let (loaded, has_next, _) = page_window(page, total);
 
@@ -236,14 +237,16 @@ async fn run_search(
         );
         push_search_where(
             &mut qb,
-            bind_text.as_deref(),
-            params.program_id,
-            params.ep,
-            bind_sub.as_deref(),
-            params.date_from.as_deref(),
-            params.date_to.as_deref(),
-            tag_list,
-            filter,
+            &SearchFilters {
+                bind_text: bind_text.as_deref(),
+                program_id: params.program_id,
+                ep: params.ep,
+                bind_sub: bind_sub.as_deref(),
+                date_from: params.date_from.as_deref(),
+                date_to: params.date_to.as_deref(),
+                tag_list,
+                filter,
+            },
         );
         qb.build_query_scalar().fetch_one(&state.pool).await?
     };
@@ -280,14 +283,16 @@ async fn run_search(
         );
         push_search_where(
             &mut qb,
-            bind_text.as_deref(),
-            params.program_id,
-            params.ep,
-            bind_sub.as_deref(),
-            params.date_from.as_deref(),
-            params.date_to.as_deref(),
-            tag_list,
-            filter,
+            &SearchFilters {
+                bind_text: bind_text.as_deref(),
+                program_id: params.program_id,
+                ep: params.ep,
+                bind_sub: bind_sub.as_deref(),
+                date_from: params.date_from.as_deref(),
+                date_to: params.date_to.as_deref(),
+                tag_list,
+                filter,
+            },
         );
         qb.push(" ORDER BY f.air_date DESC, f.episode_number, c.pts_start LIMIT ");
         qb.push_bind(PAGE_SIZE);
@@ -305,11 +310,7 @@ async fn run_search(
             SearchResult {
                 id: row.get("caption_id"),
                 text: row.get("text"),
-                time_str: format!(
-                    "{} – {}",
-                    super::fmt_ms(start_ms),
-                    super::fmt_ms(end_ms)
-                ),
+                time_str: format!("{} – {}", super::fmt_ms(start_ms), super::fmt_ms(end_ms)),
                 display_title: display_title(
                     &row.get::<String, _>("title"),
                     row.get("episode_number"),
@@ -326,9 +327,8 @@ async fn run_search(
     // Bulk-load tags for the current page of results (single query, no N+1).
     // IDs are i64 literals — no user input involved, so QueryBuilder with push_bind is safe.
     if !results.is_empty() {
-        let mut tq = QueryBuilder::<Sqlite>::new(
-            "SELECT caption_id, tag FROM tags WHERE caption_id IN (",
-        );
+        let mut tq =
+            QueryBuilder::<Sqlite>::new("SELECT caption_id, tag FROM tags WHERE caption_id IN (");
         let mut sep = tq.separated(", ");
         for r in &results {
             sep.push_bind(r.id);
@@ -351,22 +351,33 @@ async fn run_search(
     Ok((results, total))
 }
 
+struct SearchFilters<'a> {
+    bind_text: Option<&'a str>,
+    program_id: Option<i64>,
+    ep: Option<i64>,
+    bind_sub: Option<&'a str>,
+    date_from: Option<&'a str>,
+    date_to: Option<&'a str>,
+    tag_list: &'a [&'a str],
+    filter: &'a str,
+}
+
 /// Append a WHERE clause to a QueryBuilder for search queries.
 ///
 /// All conditions are collected here so that the SQL and its bound values are
 /// always in sync — no risk of a mismatch from a manually maintained parallel
 /// conditions-list + bind-chain.
-fn push_search_where(
-    qb: &mut QueryBuilder<Sqlite>,
-    bind_text: Option<&str>,
-    program_id: Option<i64>,
-    ep: Option<i64>,
-    bind_sub: Option<&str>,
-    date_from: Option<&str>,
-    date_to: Option<&str>,
-    tag_list: &[&str],
-    filter: &str,
-) {
+fn push_search_where(qb: &mut QueryBuilder<Sqlite>, f: &SearchFilters<'_>) {
+    let SearchFilters {
+        bind_text,
+        program_id,
+        ep,
+        bind_sub,
+        date_from,
+        date_to,
+        tag_list,
+        filter,
+    } = *f;
     let mut n = 0usize;
 
     // Prepend WHERE / AND depending on whether this is the first condition.
@@ -383,7 +394,9 @@ fn push_search_where(
 
     if let Some(t) = bind_text {
         cond!(qb, n);
-        qb.push("c.text LIKE ").push_bind(t.to_owned()).push(" ESCAPE '\\'");
+        qb.push("c.text LIKE ")
+            .push_bind(t.to_owned())
+            .push(" ESCAPE '\\'");
     }
     if let Some(pid) = program_id {
         cond!(qb, n);
@@ -395,7 +408,9 @@ fn push_search_where(
     }
     if let Some(s) = bind_sub {
         cond!(qb, n);
-        qb.push("f.episode_title LIKE ").push_bind(s.to_owned()).push(" ESCAPE '\\'");
+        qb.push("f.episode_title LIKE ")
+            .push_bind(s.to_owned())
+            .push(" ESCAPE '\\'");
     }
     if let Some(d) = date_from {
         cond!(qb, n);

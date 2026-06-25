@@ -38,9 +38,7 @@ pub async fn start(
             let _lock = match guard.try_lock() {
                 Ok(l) => l,
                 Err(_) => {
-                    tracing::info!(
-                        "scheduled ingest: previous scan still running, skipping tick"
-                    );
+                    tracing::info!("scheduled ingest: previous scan still running, skipping tick");
                     return;
                 }
             };

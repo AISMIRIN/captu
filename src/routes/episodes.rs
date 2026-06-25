@@ -118,7 +118,11 @@ pub async fn episodes(
 
         Ok(EpisodesTemplate {
             episodes: None,
-            subtitles: if subtitles.is_empty() { None } else { Some(subtitles) },
+            subtitles: if subtitles.is_empty() {
+                None
+            } else {
+                Some(subtitles)
+            },
         })
     } else {
         Ok(EpisodesTemplate {
