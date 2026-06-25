@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use captu::ingest;
 
-use super::{display_title, like_escape, AppState};
+use super::{display_title, like_escape, AppState, HtmlTemplate};
 
 const FILE_PAGE_SIZE: i64 = 50;
 
@@ -82,7 +82,9 @@ pub struct IngestStatusTemplate {
     pub recent_errors: Vec<ErrorEntry>,
 }
 
-pub async fn status(State(state): State<AppState>) -> Result<IngestStatusTemplate, StatusCode> {
+pub async fn status(
+    State(state): State<AppState>,
+) -> Result<HtmlTemplate<IngestStatusTemplate>, StatusCode> {
     // Aggregate status counts.
     let count_rows =
         sqlx::query!(r#"SELECT status, COUNT(*) AS "cnt!: i64" FROM ts_files GROUP BY status"#)
@@ -142,7 +144,7 @@ pub async fn status(State(state): State<AppState>) -> Result<IngestStatusTemplat
         })
         .collect();
 
-    Ok(IngestStatusTemplate {
+    Ok(HtmlTemplate(IngestStatusTemplate {
         pending,
         ingesting,
         done,
@@ -150,14 +152,14 @@ pub async fn status(State(state): State<AppState>) -> Result<IngestStatusTemplat
         total,
         ingesting_files,
         recent_errors,
-    })
+    }))
 }
 
 /// GET /ingest/files — searchable, paginated list of all TS files.
 pub async fn files(
     State(state): State<AppState>,
     Query(params): Query<FilesParams>,
-) -> Result<IngestFilesTemplate, StatusCode> {
+) -> Result<HtmlTemplate<IngestFilesTemplate>, StatusCode> {
     let q = params.q.as_deref().unwrap_or("").trim().to_string();
     let status_filter = params.status.as_deref().unwrap_or("all").trim().to_string();
     let page = params.page.unwrap_or(0).max(0);
@@ -225,7 +227,7 @@ pub async fn files(
     let has_next = offset + FILE_PAGE_SIZE < total;
     let has_prev = page > 0;
 
-    Ok(IngestFilesTemplate {
+    Ok(HtmlTemplate(IngestFilesTemplate {
         q,
         status_filter,
         files: file_items,
@@ -233,7 +235,7 @@ pub async fn files(
         total,
         has_prev,
         has_next,
-    })
+    }))
 }
 
 /// Append a WHERE clause to a QueryBuilder for the files() list.
@@ -270,7 +272,7 @@ fn push_files_where(qb: &mut QueryBuilder<Sqlite>, bind_q: Option<&str>, status_
 pub async fn file_detail(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> Result<IngestFileTemplate, StatusCode> {
+) -> Result<HtmlTemplate<IngestFileTemplate>, StatusCode> {
     let row = sqlx::query!(
         r#"SELECT f.id AS "id!: i64", f.filename, f.path, f.status, f.error_msg, f.ingested_at,
                 f.episode_number, f.episode_title, f.air_date,
@@ -288,7 +290,7 @@ pub async fn file_detail(
     })?
     .ok_or(StatusCode::NOT_FOUND)?;
 
-    Ok(IngestFileTemplate {
+    Ok(HtmlTemplate(IngestFileTemplate {
         file: FileDetail {
             id: row.id,
             filename: row.filename,
@@ -306,7 +308,7 @@ pub async fn file_detail(
             air_date: row.air_date.map(|d| d.to_string()),
             caption_count: row.caption_count,
         },
-    })
+    }))
 }
 
 /// POST /ingest/clear/:id — delete captions/cache for a TS file, keep the row.

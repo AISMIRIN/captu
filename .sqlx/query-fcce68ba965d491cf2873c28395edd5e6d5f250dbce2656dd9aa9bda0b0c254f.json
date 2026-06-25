@@ -11,7 +11,7 @@
       {
         "name": "air_date: String",
         "ordinal": 1,
-        "type_info": "Null"
+        "type_info": "Date"
       }
     ],
     "parameters": {
@@ -19,7 +19,7 @@
     },
     "nullable": [
       true,
-      null
+      true
     ]
   },
   "hash": "fcce68ba965d491cf2873c28395edd5e6d5f250dbce2656dd9aa9bda0b0c254f"

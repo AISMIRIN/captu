@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::{Deserialize, Deserializer};
 
-use super::AppState;
+use super::{AppState, HtmlTemplate};
 
 fn empty_as_none_i64<'de, D>(d: D) -> Result<Option<i64>, D::Error>
 where
@@ -49,14 +49,14 @@ pub struct EpisodesParams {
 pub async fn episodes(
     State(state): State<AppState>,
     Query(params): Query<EpisodesParams>,
-) -> Result<EpisodesTemplate, StatusCode> {
+) -> Result<HtmlTemplate<EpisodesTemplate>, StatusCode> {
     let pid = match params.program_id {
         Some(p) if p > 0 => p,
         _ => {
-            return Ok(EpisodesTemplate {
+            return Ok(HtmlTemplate(EpisodesTemplate {
                 episodes: Some(vec![]),
                 subtitles: None,
-            });
+            }));
         }
     };
 
@@ -116,18 +116,18 @@ pub async fn episodes(
             })
             .collect();
 
-        Ok(EpisodesTemplate {
+        Ok(HtmlTemplate(EpisodesTemplate {
             episodes: None,
             subtitles: if subtitles.is_empty() {
                 None
             } else {
                 Some(subtitles)
             },
-        })
+        }))
     } else {
-        Ok(EpisodesTemplate {
+        Ok(HtmlTemplate(EpisodesTemplate {
             episodes: Some(items),
             subtitles: None,
-        })
+        }))
     }
 }

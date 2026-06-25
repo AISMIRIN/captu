@@ -8,7 +8,7 @@ use axum::{
 use serde::Deserialize;
 use sqlx::SqlitePool;
 
-use super::AppState;
+use super::{AppState, HtmlTemplate};
 
 /// Fetch all tags for a caption, ordered alphabetically.
 pub(crate) async fn load_tags(pool: &SqlitePool, caption_id: i64) -> Result<Vec<String>> {
@@ -46,7 +46,7 @@ const HX_TRIGGER: (HeaderName, &str) = (HeaderName::from_static("hx-trigger"), "
 
 /// Wrap a TagsFragment with the tagsChanged trigger header.
 fn with_tags_trigger(frag: TagsFragment) -> impl IntoResponse {
-    ([HX_TRIGGER], frag)
+    ([HX_TRIGGER], HtmlTemplate(frag))
 }
 
 /// POST /caption/:id/tags — add a tag (idempotent via INSERT OR IGNORE).
@@ -110,7 +110,9 @@ pub async fn delete_tag(
 }
 
 /// GET /api/tags — list all distinct tags for autocomplete and filter select.
-pub async fn tag_options(State(state): State<AppState>) -> Result<TagOptionsTemplate, StatusCode> {
+pub async fn tag_options(
+    State(state): State<AppState>,
+) -> Result<HtmlTemplate<TagOptionsTemplate>, StatusCode> {
     let rows = sqlx::query!("SELECT DISTINCT tag FROM tags ORDER BY tag")
         .fetch_all(&state.pool)
         .await
@@ -121,5 +123,5 @@ pub async fn tag_options(State(state): State<AppState>) -> Result<TagOptionsTemp
 
     let tags = rows.into_iter().map(|r| r.tag).collect();
 
-    Ok(TagOptionsTemplate { tags })
+    Ok(HtmlTemplate(TagOptionsTemplate { tags }))
 }

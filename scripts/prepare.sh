@@ -45,16 +45,16 @@ exec docker run --rm -i "${TTY_FLAG[@]}" \
     bash -c "
         set -euo pipefail
 
-        # Install sqlx-cli if not present (cached in CARGO_HOME bind-mount).
-        if ! command -v sqlx >/dev/null 2>&1 && \
-           [ ! -f /app/.cache/cargo/bin/sqlx ]; then
-            echo '[prepare.sh] installing sqlx-cli ...'
+        # Install sqlx-cli if not present or if the cached version is not 0.8.x.
+        export PATH=\"/app/.cache/cargo/bin:\$PATH\"
+        if ! command -v sqlx >/dev/null 2>&1 || \
+           ! sqlx --version 2>&1 | grep -qE '^sqlx-cli 0\\.8'; then
+            echo '[prepare.sh] installing sqlx-cli 0.8 ...'
             cargo install sqlx-cli \
-                --version '^0.7' \
+                --version '^0.8' \
                 --no-default-features \
                 --features sqlite,rustls
         fi
-        export PATH=\"/app/.cache/cargo/bin:\$PATH\"
 
         # Create the DB and apply migrations so query! can validate against the schema.
         echo '[prepare.sh] running migrations on prepare DB ...'

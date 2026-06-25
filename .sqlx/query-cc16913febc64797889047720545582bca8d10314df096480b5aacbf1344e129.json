@@ -6,17 +6,17 @@
       {
         "name": "ts_file_id!: i64",
         "ordinal": 0,
-        "type_info": "Int64"
+        "type_info": "Integer"
       },
       {
         "name": "pts_start!: i64",
         "ordinal": 1,
-        "type_info": "Int64"
+        "type_info": "Integer"
       },
       {
         "name": "pts_end!: i64",
         "ordinal": 2,
-        "type_info": "Int64"
+        "type_info": "Integer"
       },
       {
         "name": "text",
@@ -31,7 +31,7 @@
       {
         "name": "episode_number",
         "ordinal": 5,
-        "type_info": "Int64"
+        "type_info": "Integer"
       },
       {
         "name": "episode_title",
@@ -41,7 +41,7 @@
       {
         "name": "selected_frame!: i64",
         "ordinal": 7,
-        "type_info": "Int64"
+        "type_info": "Integer"
       }
     ],
     "parameters": {

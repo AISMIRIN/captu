@@ -8,7 +8,7 @@ use serde::{Deserialize, Deserializer};
 use sqlx::{QueryBuilder, Row, Sqlite};
 use std::collections::HashMap;
 
-use super::{display_title, like_escape, AppState};
+use super::{display_title, like_escape, AppState, HtmlTemplate};
 
 const PAGE_SIZE: i64 = 50;
 /// Maximum accepted page number from user input.  Pages beyond this are clamped
@@ -118,7 +118,9 @@ pub struct SearchParams {
     pub page: Option<i64>,
 }
 
-pub async fn index(State(state): State<AppState>) -> Result<IndexTemplate, StatusCode> {
+pub async fn index(
+    State(state): State<AppState>,
+) -> Result<HtmlTemplate<IndexTemplate>, StatusCode> {
     // Only include programs that have at least one caption, so that programs
     // whose subtitles were cleared via "字幕を消す" don't appear in the selector.
     let rows = sqlx::query!(
@@ -145,16 +147,16 @@ pub async fn index(State(state): State<AppState>) -> Result<IndexTemplate, Statu
         })
         .collect();
 
-    Ok(IndexTemplate {
+    Ok(HtmlTemplate(IndexTemplate {
         query: String::new(),
         programs,
-    })
+    }))
 }
 
 pub async fn search(
     State(state): State<AppState>,
     Query(params): Query<SearchParams>,
-) -> Result<SearchResultsTemplate, StatusCode> {
+) -> Result<HtmlTemplate<SearchResultsTemplate>, StatusCode> {
     let q = params.q.as_deref().unwrap_or("").trim().to_string();
     let filter = params.filter.as_deref().unwrap_or("all").to_string();
     let page = params.page.unwrap_or(0).clamp(0, MAX_PAGE);
@@ -180,13 +182,13 @@ pub async fn search(
 
     // Return empty unless something is actually specified.
     if active_q.is_none() && !has_filter && !tab_active {
-        return Ok(SearchResultsTemplate {
+        return Ok(HtmlTemplate(SearchResultsTemplate {
             results: vec![],
             page: 0,
             total: 0,
             loaded: 0,
             has_next: false,
-        });
+        }));
     }
 
     let (results, total) = run_search(
@@ -200,13 +202,13 @@ pub async fn search(
 
     let (loaded, has_next, _) = page_window(page, total);
 
-    Ok(SearchResultsTemplate {
+    Ok(HtmlTemplate(SearchResultsTemplate {
         results,
         page,
         total,
         loaded,
         has_next,
-    })
+    }))
 }
 
 async fn run_search(

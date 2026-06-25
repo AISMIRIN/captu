@@ -19,17 +19,17 @@ path = "src/bin/ingest_cli.rs"
 
 [dependencies]
 # Web
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.5"
-tower-http = { version = "0.5", features = ["fs", "trace"] }
+tower-http = { version = "0.6", features = ["fs", "trace"] }
 
 # Template (compile-time validation)
-askama = "0.12"
-askama_axum = "0.4"
+# askama_axum was deprecated; IntoResponse is handled by routes::HtmlTemplate.
+askama = "0.14"
 
 # DB (compile-time query validation)
-sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite", "chrono", "macros", "migrate"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "macros", "migrate"] }
 
 # Config
 toml = "1.1"
@@ -42,7 +42,7 @@ tokio-cron-scheduler = "0.15"
 # LLM — TODO(Phase7): wire up AI search via reqwest + Gemini/Anthropic
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 base64 = "0.22"
-async-trait = "0.1"
+# async-trait removed: unused in current codebase (re-add when Phase7 LLM trait is wired up)
 
 # String normalization
 unicode-normalization = "0.1"

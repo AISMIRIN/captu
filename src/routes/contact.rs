@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
 };
 
-use super::{display_title, AppState};
+use super::{display_title, AppState, HtmlTemplate};
 
 #[derive(Template)]
 #[template(path = "pages/contact.html")]
@@ -25,7 +25,7 @@ pub struct ContactTemplate {
 pub async fn contact(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> Result<ContactTemplate, StatusCode> {
+) -> Result<HtmlTemplate<ContactTemplate>, StatusCode> {
     let rep_frame = state.config.capture.thumb_count as i64 / 2;
 
     let row = sqlx::query!(
@@ -66,7 +66,7 @@ pub async fn contact(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    Ok(ContactTemplate {
+    Ok(HtmlTemplate(ContactTemplate {
         caption_id: id,
         ts_file_id: row.ts_file_id,
         display_title: display_title(&row.title, row.episode_number, row.episode_title.as_deref()),
@@ -79,5 +79,5 @@ pub async fn contact(
         frames: (0..thumb_count).collect(),
         selected_frame: row.selected_frame,
         tags,
-    })
+    }))
 }

@@ -40,6 +40,9 @@ RUN apt-get update && apt-get install -y \
     ffmpeg sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Rust components needed for development verification (fmt, clippy).
+RUN rustup component add rustfmt clippy
+
 # Rounded M+ 1m for ARIB subtitle rendering (same font as runtime image)
 COPY docker/assets/fonts/rounded-mplus-1m-arib.ttf /usr/local/share/fonts/
 COPY docker/assets/fonts/99-captu-fonts.conf /etc/fonts/conf.d/

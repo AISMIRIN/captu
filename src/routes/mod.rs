@@ -8,11 +8,31 @@ pub mod tags;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use axum::extract::FromRef;
+use axum::{
+    extract::FromRef,
+    http::StatusCode,
+    response::{Html, IntoResponse, Response},
+};
 use sqlx::SqlitePool;
 use tokio::sync::Mutex as AsyncMutex;
 
 use captu::config::Config;
+
+/// Newtype wrapper that turns any askama Template into an axum IntoResponse.
+/// Replaces the deprecated askama_axum crate.
+pub struct HtmlTemplate<T>(pub T);
+
+impl<T: askama::Template> IntoResponse for HtmlTemplate<T> {
+    fn into_response(self) -> Response {
+        match self.0.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(e) => {
+                tracing::error!("template render error: {:#}", e);
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            }
+        }
+    }
+}
 
 /// Shared application state.
 /// FromRef<AppState> for SqlitePool allows existing search handlers
