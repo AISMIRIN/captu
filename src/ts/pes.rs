@@ -27,7 +27,7 @@ pub struct CaptionPes {
 
 // ── PES blob serialization ─────────────────────────────────────────────────
 
-/// Serialize a list of PES units to a binary blob file (bincode format).
+/// Serialize a list of PES units to a binary blob file (postcard format).
 ///
 /// Stored at `cache/{stem}/captions.pes` during ingest.  The blob is small
 /// (a few hundred KiB) and allows the subtitle renderer to replay the full
@@ -36,7 +36,7 @@ pub fn write_pes_blob(path: &Path, pes: &[CaptionPes]) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let encoded = bincode::serialize(pes)?;
+    let encoded = postcard::to_allocvec(pes)?;
     let mut f = File::create(path)?;
     f.write_all(&encoded)?;
     Ok(())
@@ -45,7 +45,7 @@ pub fn write_pes_blob(path: &Path, pes: &[CaptionPes]) -> Result<()> {
 /// Deserialize a PES blob previously written by [`write_pes_blob`].
 pub fn read_pes_blob(path: &Path) -> Result<Vec<CaptionPes>> {
     let data = std::fs::read(path)?;
-    Ok(bincode::deserialize(&data)?)
+    Ok(postcard::from_bytes(&data)?)
 }
 
 // ── PAT/PMT scanner ───────────────────────────────────────────────────────

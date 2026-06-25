@@ -19,7 +19,7 @@
     </div>
   </a>
   <div id="tags-{{ r.id }}" class="px-3 pb-2">
-    {% call m::tag_block(r.id, r.tags.as_slice()) %}
+    {{ m::tag_block(r.id, r.tags.as_slice()) }}
   </div>
 </div>
 {% else %}
@@ -35,7 +35,7 @@
     {% endif %}
   </a>
   <div id="tags-{{ r.id }}" class="px-3 pb-2">
-    {% call m::tag_block(r.id, r.tags.as_slice()) %}
+    {{ m::tag_block(r.id, r.tags.as_slice()) }}
   </div>
 </div>
 {% endif %}

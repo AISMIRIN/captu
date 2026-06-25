@@ -310,9 +310,9 @@ mod tests {
         let png_bytes = encode_png(&rgba, w, h).expect("encode should succeed");
 
         // Decode with the png crate to verify the output is valid
-        let decoder = png::Decoder::new(png_bytes.as_slice());
+        let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes.as_slice()));
         let mut reader = decoder.read_info().expect("PNG decode failed");
-        let mut buf = vec![0u8; reader.output_buffer_size()];
+        let mut buf = vec![0u8; reader.output_buffer_size().expect("buffer size")];
         let info = reader.next_frame(&mut buf).expect("PNG frame read failed");
 
         assert_eq!(info.width, w);
@@ -324,9 +324,9 @@ mod tests {
     fn encode_png_1x1_transparent() {
         // Fully transparent single pixel
         let png_bytes = encode_png(&[0u8, 0, 0, 0], 1, 1).expect("encode should succeed");
-        let decoder = png::Decoder::new(png_bytes.as_slice());
+        let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes.as_slice()));
         let mut reader = decoder.read_info().expect("PNG decode failed");
-        let mut buf = vec![0u8; reader.output_buffer_size()];
+        let mut buf = vec![0u8; reader.output_buffer_size().expect("buffer size")];
         reader.next_frame(&mut buf).expect("frame read failed");
         assert_eq!(buf[3], 0, "alpha channel should be 0 (transparent)");
     }

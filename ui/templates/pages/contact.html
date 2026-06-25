@@ -22,7 +22,7 @@
 
   {# Tag chips: add / remove without page reload #}
   <div id="tags-{{ caption_id }}" class="mb-4">
-    {% call m::tag_block(caption_id, tags.as_slice()) %}
+    {{ m::tag_block(caption_id, tags.as_slice()) }}
   </div>
   <datalist id="tag-list"
             hx-get="/api/tags"
