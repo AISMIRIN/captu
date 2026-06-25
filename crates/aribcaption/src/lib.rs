@@ -183,8 +183,7 @@ impl AribCaption {
 
     /// True when this caption event carries the CLEARSCREEN flag.
     pub fn is_clear_screen(&self) -> bool {
-        (self.inner.flags
-            & aribcaption_sys::aribcc_captionflags_t_ARIBCC_CAPTIONFLAGS_CLEARSCREEN)
+        (self.inner.flags & aribcaption_sys::aribcc_captionflags_t_ARIBCC_CAPTIONFLAGS_CLEARSCREEN)
             != 0
     }
 }
@@ -243,8 +242,7 @@ impl Renderer {
     /// Returns the list of RGBA image fragments to composite onto the video frame.
     /// An empty vec means no caption is active at this PTS.
     pub fn render(&mut self, pts_ms: i64) -> Vec<RenderedImage> {
-        let mut result: aribcaption_sys::aribcc_render_result_t =
-            unsafe { std::mem::zeroed() };
+        let mut result: aribcaption_sys::aribcc_render_result_t = unsafe { std::mem::zeroed() };
         let status =
             unsafe { aribcaption_sys::aribcc_renderer_render(self.ptr, pts_ms, &mut result) };
 
@@ -262,8 +260,7 @@ impl Renderer {
             .iter()
             .map(|img| {
                 let size = (img.stride * img.height) as usize;
-                let rgba =
-                    unsafe { std::slice::from_raw_parts(img.bitmap, size) }.to_vec();
+                let rgba = unsafe { std::slice::from_raw_parts(img.bitmap, size) }.to_vec();
                 RenderedImage {
                     dst_x: img.dst_x,
                     dst_y: img.dst_y,

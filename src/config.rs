@@ -18,9 +18,15 @@ pub struct PathsConfig {
     pub db_path: String,
 }
 
-fn default_thumb_width() -> u32 { 640 }
-fn default_thumb_height() -> u32 { 360 }
-fn default_thumb_quality() -> u32 { 4 }
+fn default_thumb_width() -> u32 {
+    640
+}
+fn default_thumb_height() -> u32 {
+    360
+}
+fn default_thumb_quality() -> u32 {
+    4
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct CaptureConfig {

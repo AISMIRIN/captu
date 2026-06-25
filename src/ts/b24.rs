@@ -23,32 +23,58 @@ pub fn decode_arib_b24(data: &[u8]) -> String {
     while i < data.len() {
         let b = data[i];
         match b {
-            0x00 => { i += 1; }
-            0x0A | 0x0D => { result.push('\n'); i += 1; }
-            0x20 => { result.push(' '); i += 1; }
+            0x00 => {
+                i += 1;
+            }
+            0x0A | 0x0D => {
+                result.push('\n');
+                i += 1;
+            }
+            0x20 => {
+                result.push(' ');
+                i += 1;
+            }
             0x1B => {
                 i += 1;
-                if i >= data.len() { break; }
+                if i >= data.len() {
+                    break;
+                }
                 match data[i] {
                     // Designate multi-byte set (Kanji)
                     0x24 => {
                         i += 1;
-                        if i >= data.len() { break; }
+                        if i >= data.len() {
+                            break;
+                        }
                         match data[i] {
-                            0x42 => { g[0] = 0; i += 1; } // G0 = Kanji
+                            0x42 => {
+                                g[0] = 0;
+                                i += 1;
+                            } // G0 = Kanji
                             0x29 => {
                                 i += 1;
-                                if i < data.len() && data[i] == 0x42 { g[1] = 0; i += 1; }
+                                if i < data.len() && data[i] == 0x42 {
+                                    g[1] = 0;
+                                    i += 1;
+                                }
                             }
                             0x2A => {
                                 i += 1;
-                                if i < data.len() && data[i] == 0x42 { g[2] = 0; i += 1; }
+                                if i < data.len() && data[i] == 0x42 {
+                                    g[2] = 0;
+                                    i += 1;
+                                }
                             }
                             0x2B => {
                                 i += 1;
-                                if i < data.len() && data[i] == 0x42 { g[3] = 0; i += 1; }
+                                if i < data.len() && data[i] == 0x42 {
+                                    g[3] = 0;
+                                    i += 1;
+                                }
                             }
-                            _ => { i += 1; }
+                            _ => {
+                                i += 1;
+                            }
                         }
                     }
                     // Designate single-byte sets into G0..G3
@@ -58,7 +84,10 @@ pub fn decode_arib_b24(data: &[u8]) -> String {
                         i += 1;
                         if i < data.len() {
                             g[0] = match data[i] {
-                                0x42 | 0x4A => 1, 0x30 => 2, 0x31 => 3, _ => g[0],
+                                0x42 | 0x4A => 1,
+                                0x30 => 2,
+                                0x31 => 3,
+                                _ => g[0],
                             };
                             i += 1;
                         }
@@ -66,36 +95,74 @@ pub fn decode_arib_b24(data: &[u8]) -> String {
                     0x29 => {
                         i += 1;
                         if i < data.len() {
-                            g[1] = match data[i] { 0x42 | 0x4A => 1, 0x30 => 2, 0x31 => 3, _ => g[1] };
+                            g[1] = match data[i] {
+                                0x42 | 0x4A => 1,
+                                0x30 => 2,
+                                0x31 => 3,
+                                _ => g[1],
+                            };
                             i += 1;
                         }
                     }
                     0x2A => {
                         i += 1;
                         if i < data.len() {
-                            g[2] = match data[i] { 0x42 | 0x4A => 1, 0x30 => 2, 0x31 => 3, _ => g[2] };
+                            g[2] = match data[i] {
+                                0x42 | 0x4A => 1,
+                                0x30 => 2,
+                                0x31 => 3,
+                                _ => g[2],
+                            };
                             i += 1;
                         }
                     }
                     0x2B => {
                         i += 1;
                         if i < data.len() {
-                            g[3] = match data[i] { 0x42 | 0x4A => 1, 0x30 => 2, 0x31 => 3, _ => g[3] };
+                            g[3] = match data[i] {
+                                0x42 | 0x4A => 1,
+                                0x30 => 2,
+                                0x31 => 3,
+                                _ => g[3],
+                            };
                             i += 1;
                         }
                     }
                     // Locking shifts GL
-                    0x6E => { gl = 2; i += 1; } // LS2
-                    0x6F => { gl = 3; i += 1; } // LS3
+                    0x6E => {
+                        gl = 2;
+                        i += 1;
+                    } // LS2
+                    0x6F => {
+                        gl = 3;
+                        i += 1;
+                    } // LS3
                     // Locking shifts GR (LS1R, LS2R, LS3R)
-                    0x7E => { gr = 1; i += 1; } // LS1R: G1 -> GR
-                    0x7D => { gr = 2; i += 1; } // LS2R: G2 -> GR
-                    0x7C => { gr = 3; i += 1; } // LS3R: G3 -> GR
-                    _ => { i += 1; }
+                    0x7E => {
+                        gr = 1;
+                        i += 1;
+                    } // LS1R: G1 -> GR
+                    0x7D => {
+                        gr = 2;
+                        i += 1;
+                    } // LS2R: G2 -> GR
+                    0x7C => {
+                        gr = 3;
+                        i += 1;
+                    } // LS3R: G3 -> GR
+                    _ => {
+                        i += 1;
+                    }
                 }
             }
-            0x0F => { gl = 0; i += 1; } // LS0: G0 -> GL
-            0x0E => { gl = 1; i += 1; } // LS1: G1 -> GL
+            0x0F => {
+                gl = 0;
+                i += 1;
+            } // LS0: G0 -> GL
+            0x0E => {
+                gl = 1;
+                i += 1;
+            } // LS1: G1 -> GL
             // GL range
             0x21..=0x7E => {
                 decode_gset(&mut result, &mut i, data, b, g[gl], false);
@@ -104,7 +171,9 @@ pub fn decode_arib_b24(data: &[u8]) -> String {
             0xA1..=0xFE => {
                 decode_gset(&mut result, &mut i, data, b, g[gr], true);
             }
-            _ => { i += 1; }
+            _ => {
+                i += 1;
+            }
         }
     }
 
@@ -121,11 +190,12 @@ fn decode_gset(result: &mut String, i: &mut usize, data: &[u8], b: u8, gset: u8,
             // GR 0xF5-0xFE) for additional kanji and symbols.  These are decoded
             // via ARIB_GAIJI_TABLE ported from libaribcaption.
             let gl_first = if is_gr { b & 0x7F } else { b };
-            let next_ok = *i + 1 < data.len() && if is_gr {
-                (0xA1..=0xFE).contains(&data[*i + 1])
-            } else {
-                (0x21..=0x7E).contains(&data[*i + 1])
-            };
+            let next_ok = *i + 1 < data.len()
+                && if is_gr {
+                    (0xA1..=0xFE).contains(&data[*i + 1])
+                } else {
+                    (0x21..=0x7E).contains(&data[*i + 1])
+                };
             if !next_ok {
                 *i += 1;
                 return;
@@ -199,7 +269,9 @@ fn decode_gset(result: &mut String, i: &mut usize, data: &[u8], b: u8, gset: u8,
             }
             *i += 1;
         }
-        _ => { *i += 1; }
+        _ => {
+            *i += 1;
+        }
     }
 }
 
