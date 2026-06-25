@@ -9,4 +9,4 @@ links = "aribcaption"
 
 [build-dependencies]
 cmake = "0.1"
-bindgen = "0.70"
+bindgen = "0.72"
