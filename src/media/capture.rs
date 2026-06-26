@@ -64,6 +64,16 @@ pub fn full_path(cache_dir: &Path, stem: &str, id: i64, n: u32) -> PathBuf {
         .join(format!("{}_{:02}.jpg", id, n))
 }
 
+/// Path where a subtitle-free single-frame preview JPEG is cached.
+///
+/// Used by search results before full contact-sheet thumbnails are generated.
+pub fn preview_path(cache_dir: &Path, stem: &str, id: i64) -> PathBuf {
+    cache_dir
+        .join(stem)
+        .join("preview")
+        .join(format!("{}.jpg", id))
+}
+
 /// Remove cached thumbs/full JPEGs and the subtitle PNG for one caption,
 /// forcing regeneration on the next /thumb or /full request.
 ///
@@ -92,6 +102,12 @@ pub fn clear_caption_cache(cache_dir: &Path, stem: &str, id: i64) -> Result<()> 
     let sub_png = cache_dir.join(stem).join("sub").join(format!("{}.png", id));
     if sub_png.exists() {
         std::fs::remove_file(&sub_png)?;
+    }
+
+    // Remove preview/{id}.jpg
+    let preview = preview_path(cache_dir, stem, id);
+    if preview.exists() {
+        std::fs::remove_file(&preview)?;
     }
 
     Ok(())
@@ -412,11 +428,92 @@ pub fn ensure_full(
     Ok(())
 }
 
+/// Generate a subtitle-free single-frame preview JPEG for search result display.
+///
+/// Output: `cache/{stem}/preview/{id}.jpg`
+/// Resolution: `cfg.thumb_width × cfg.thumb_height` (same as contact-sheet thumbs)
+/// Quality: `cfg.thumb_quality`
+///
+/// Unlike `ensure_thumbnails`, no subtitle PNG is overlaid — this keeps generation
+/// fast enough to run on-demand from search results.  When the full contact-sheet
+/// thumbnails are later generated via `ensure_thumbnails`, the search page naturally
+/// switches to the subtitle-composited `/thumb` URL on the next render.
+// Requires a real TS file and ffmpeg; delegates to run_ffmpeg.
+// Confirmed separately (integration / manual). Not included in the coverage gate.
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn ensure_preview(
+    cfg: &Config,
+    ts_path: &Path,
+    id: i64,
+    pts_start_ms: i64,
+    pts_end_ms: i64,
+) -> Result<()> {
+    let stem = ts_stem(ts_path);
+    let cache_dir = Path::new(&cfg.paths.cache_dir);
+
+    let dst = preview_path(cache_dir, &stem, id);
+    if dst.exists() {
+        return Ok(());
+    }
+
+    let preview_dir = cache_dir.join(&stem).join("preview");
+    std::fs::create_dir_all(&preview_dir)?;
+
+    let count = cfg.capture.thumb_count as usize;
+    let fps = 30_000.0_f64 / 1001.0;
+    let all_frames = frame_indices(pts_start_ms, pts_end_ms, count, fps);
+
+    // Use the representative (middle) frame.
+    let rep_idx = count / 2;
+    let frame_num = all_frames.get(rep_idx).copied().unwrap_or(0);
+
+    let pts_start_sec = pts_start_ms as f64 / 1000.0;
+    let pts_end_sec = pts_end_ms as f64 / 1000.0;
+    let pre_seek = (pts_start_sec - 6.0).max(0.0);
+    let win_start = pts_start_sec + 1.5;
+    let win_end = if pts_end_sec > win_start {
+        pts_end_sec
+    } else {
+        win_start + 0.5
+    };
+    let dur = (win_end - pre_seek) + 0.5;
+
+    let dst_str = dst.to_str().unwrap_or("").to_string();
+
+    let out = run_ffmpeg(&CaptureParams {
+        ts_path,
+        pre_seek,
+        dur,
+        frame_nums: &[frame_num],
+        sub_png: None,
+        width: cfg.capture.thumb_width,
+        height: cfg.capture.thumb_height,
+        quality: cfg.capture.thumb_quality,
+        out_pattern: &dst_str,
+    })?;
+
+    if !out.status.success() {
+        bail!(
+            "preview pipeline failed for {} (caption {}):\n  exit: {}\n  stderr:\n{}",
+            ts_path.display(),
+            id,
+            out.status,
+            String::from_utf8_lossy(&out.stderr),
+        );
+    }
+
+    if !dst.exists() {
+        bail!("preview pipeline produced no output for caption {}", id,);
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        build_ffmpeg_args, build_select_expr, frame_indices, full_path, thumb_path, ts_stem,
-        CaptureParams,
+        build_ffmpeg_args, build_select_expr, frame_indices, full_path, preview_path, thumb_path,
+        ts_stem, CaptureParams,
     };
     use std::path::Path;
 
@@ -449,6 +546,22 @@ mod tests {
     fn full_path_zero_padded_n() {
         let p = full_path(Path::new("/cache"), "ep01", 1, 0);
         assert_eq!(p, Path::new("/cache/ep01/full/1_00.jpg"));
+    }
+
+    // ── preview_path ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn preview_path_format() {
+        let p = preview_path(Path::new("/cache"), "ep01", 42);
+        assert_eq!(p, Path::new("/cache/ep01/preview/42.jpg"));
+    }
+
+    #[test]
+    fn preview_path_different_ids() {
+        let p1 = preview_path(Path::new("/cache"), "ep01", 1);
+        let p2 = preview_path(Path::new("/cache"), "ep01", 999);
+        assert_eq!(p1, Path::new("/cache/ep01/preview/1.jpg"));
+        assert_eq!(p2, Path::new("/cache/ep01/preview/999.jpg"));
     }
 
     // ── ts_stem ────────────────────────────────────────────────────────────────

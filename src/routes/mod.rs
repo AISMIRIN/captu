@@ -64,6 +64,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/contact/{id}", get(contact::contact))
         .route("/thumb/{id}/{n}", get(capture::thumb))
         .route("/full/{id}/{n}", get(capture::full))
+        .route("/preview/{id}", get(capture::preview))
         .route("/select/{id}/{n}", post(capture::select_frame))
         .route("/api/episodes", get(episodes::episodes))
         .route("/api/tags", get(tags::tag_options))

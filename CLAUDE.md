@@ -61,6 +61,7 @@ ui/
 cache/{ts_stem}/
   captions.pes           # ARIB字幕PESブロブ (取り込み時に保存)
   sub/{caption_id}.png   # 字幕PNG (on-demand描画、初回アクセス時に生成)
+  preview/{caption_id}.jpg  # 字幕なし単フレームJPEG (検索結果プレビュー用、初回アクセス時に生成)
   thumbs/
     {caption_id}_{n:02}.jpg  # コンタクトシートJPEG (縮小表示用、初回アクセス時に生成)
   full/

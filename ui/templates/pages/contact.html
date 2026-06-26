@@ -33,13 +33,16 @@
 
   {# Enlarged preview of the selected frame — updated by selectFrame() #}
   <div class="rounded-lg overflow-hidden bg-black mb-3">
-    <img
-      id="enlarged"
-      src="/full/{{ caption_id }}/{{ selected_frame }}"
-      alt="選択中のフレーム"
-      class="w-full object-contain"
-      style="max-height: 60vh;"
-    >
+    {# bg-gray-700 acts as a loading skeleton until the image loads #}
+    <div class="relative bg-gray-700 animate-pulse aspect-video" style="max-height: 60vh;">
+      <img
+        id="enlarged"
+        src="/full/{{ caption_id }}/{{ selected_frame }}"
+        alt="選択中のフレーム"
+        class="absolute inset-0 w-full h-full object-contain opacity-0 transition-opacity duration-200"
+        onload="this.classList.remove('opacity-0'); this.parentElement.classList.remove('animate-pulse', 'bg-gray-700')"
+      >
+    </div>
   </div>
 
   {# Thumbnail strip: tap a frame to update the enlarged preview above #}
