@@ -151,6 +151,16 @@ scripts/release.sh major   # 0.1.0 → 1.0.0
 scripts/release.sh 1.2.3   # 明示指定
 ```
 
+## エディタ (rust-analyzer) の既知問題
+
+askama 0.16 がループ変数 ident に subspan を付与するようになった影響で、
+rust-analyzer の proc-macro サーバが `#[derive(Template)]` を展開する際に
+`proc-macro panicked: "..." is not a valid identifier` を出す。
+
+- **rustc / CI は無影響**（`scripts/dev.sh` はすべてグリーン）。
+- `.zed/settings.json` の `procMacro.ignored` で askama の Template 展開をスキップして回避済み。
+- askama または rust-analyzer の修正で解消したら設定を撤去してよい。
+
 ## コミット規約
 
 形式: `type: 説明` (一行目) + 任意の本文 + `Co-Authored-By` トレーラー

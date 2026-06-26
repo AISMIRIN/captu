@@ -505,6 +505,23 @@ async function handleJpeg(captionId, frameN) {
 
 ---
 
+## 既知の開発環境上の問題
+
+### rust-analyzer での `#[derive(Template)]` panic
+
+askama 0.16 から導入された subspan マッピング（テンプレ source のバイト範囲を
+proc_macro2 トークンに付与する機能）を rust-analyzer の proc-macro サーバが
+正しく扱えないため、`#[derive(Template)]` 展開時に
+`proc-macro panicked: "..." is not a valid identifier` が出る。
+
+`rustc`（cargo build / `scripts/dev.sh`）は正常にコンパイルできるため **CI・ビルドへの影響はない**。
+
+**回避策**: `.zed/settings.json`（`.gitignore` 済み、ローカルのみ）で
+`procMacro.ignored` に `askama_macros: ["Template"]` を設定し、RA の展開をスキップ。
+askama または rust-analyzer 側で修正されたらこの設定を撤去する。
+
+---
+
 ## 未実装・将来構想
 
 - **LLM AI検索**: 状況文 → FTS5候補 → LLMランク付け（`plans/phase7-ai-search.md`）
