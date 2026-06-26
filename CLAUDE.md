@@ -9,7 +9,7 @@
 
 ```
 src/
-├── main.rs          # axumサーバ、起動時スキャン、ルータ組み立て
+├── main.rs          # axumサーバ起動、起動時スキャン (routes::build_router() を呼ぶ)
 ├── lib.rs           # クレートルート (モジュール宣言)
 ├── config.rs        # config.toml 読み込み
 ├── db.rs            # SQLiteスキーマ・接続プール
@@ -27,7 +27,7 @@ src/
 │   └── capture.rs   # ffmpeg 単一パスサムネ生成 (stock ffmpeg)
 │                    #   scale → select → 字幕PNGオーバーレイ → JPEG (1コマンド)
 ├── routes/
-│   ├── mod.rs       # AppState, display_title(), fmt_ms(), like_escape()
+│   ├── mod.rs       # AppState, build_router(), display_title(), fmt_ms(), like_escape()
 │   ├── search.rs    # GET /, GET /search
 │   ├── contact.rs   # GET /contact/{id} (コンタクトシート)
 │   ├── capture.rs   # GET /thumb/{id}/{n}, GET /full/{id}/{n}, POST /select/{id}/{n}, POST /recapture/{id}
