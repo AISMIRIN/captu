@@ -217,6 +217,9 @@ fn build_ffmpeg_args(p: &CaptureParams<'_>) -> Vec<String> {
 /// When a subtitle PNG is provided it is scaled to the output dimensions
 /// before being overlaid (required when the PNG was rendered at full
 /// resolution but the output is a smaller thumbnail).
+// Spawns a real ffmpeg process: requires a TS file on NAS and the ffmpeg binary.
+// Confirmed separately (integration / manual). Not included in the coverage gate.
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn run_ffmpeg(p: &CaptureParams<'_>) -> Result<std::process::Output> {
     let args = build_ffmpeg_args(p);
     Ok(Command::new("ffmpeg").args(&args).output()?)
@@ -229,6 +232,9 @@ fn run_ffmpeg(p: &CaptureParams<'_>) -> Result<std::process::Output> {
 /// Output: `cache/{stem}/thumbs/{id}_{n:02}.jpg`
 /// Resolution: `cfg.thumb_width × cfg.thumb_height`
 /// Quality: `cfg.thumb_quality`
+// Requires a real TS file and ffmpeg; delegates to run_ffmpeg.
+// Confirmed separately (integration / manual). Not included in the coverage gate.
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub fn ensure_thumbnails(
     cfg: &Config,
     ts_path: &Path,
@@ -317,6 +323,9 @@ pub fn ensure_thumbnails(
 /// Quality: `cfg.jpeg_quality`
 ///
 /// Only the requested frame `n` is generated; other frames are not touched.
+// Requires a real TS file and ffmpeg; delegates to run_ffmpeg.
+// Confirmed separately (integration / manual). Not included in the coverage gate.
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub fn ensure_full(
     cfg: &Config,
     ts_path: &Path,

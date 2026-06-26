@@ -12,11 +12,13 @@ use axum::{
     extract::FromRef,
     http::StatusCode,
     response::{Html, IntoResponse, Response},
+    routing::{get, post},
+    Router,
 };
 use sqlx::SqlitePool;
 use tokio::sync::Mutex as AsyncMutex;
 
-use captu::config::Config;
+use crate::config::Config;
 
 /// Newtype wrapper that turns any askama Template into an axum IntoResponse.
 /// Replaces the deprecated askama_axum crate.
@@ -49,6 +51,31 @@ impl FromRef<AppState> for SqlitePool {
     fn from_ref(state: &AppState) -> Self {
         state.pool.clone()
     }
+}
+
+/// Wire all application routes to a `Router` except `/static` (ServeDir).
+///
+/// Excludes the static file service so callers (main.rs, tests) can layer it
+/// separately; integration tests typically skip it entirely.
+pub fn build_router(state: AppState) -> Router {
+    Router::new()
+        .route("/", get(search::index))
+        .route("/search", get(search::search))
+        .route("/contact/{id}", get(contact::contact))
+        .route("/thumb/{id}/{n}", get(capture::thumb))
+        .route("/full/{id}/{n}", get(capture::full))
+        .route("/select/{id}/{n}", post(capture::select_frame))
+        .route("/api/episodes", get(episodes::episodes))
+        .route("/api/tags", get(tags::tag_options))
+        .route("/caption/{id}/tags", post(tags::add_tag))
+        .route("/caption/{id}/tags/delete", post(tags::delete_tag))
+        .route("/ingest/status", get(ingest::status))
+        .route("/ingest/files", get(ingest::files))
+        .route("/ingest/file/{id}", get(ingest::file_detail))
+        .route("/ingest/clear/{id}", post(ingest::clear))
+        .route("/reingest/{id}", post(ingest::reingest))
+        .route("/recapture/{id}", post(capture::recapture))
+        .with_state(state)
 }
 
 /// Format milliseconds as HH:MM:SS or MM:SS for display.

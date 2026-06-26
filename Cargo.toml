@@ -62,3 +62,22 @@ encoding_rs = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
+# Route integration tests: oneshot request dispatch and response body extraction.
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+
+# Declare coverage_nightly as a known cfg so the unexpected_cfg lint doesn't fire.
+# This cfg is set automatically by cargo-llvm-cov when running under nightly,
+# and used by #[cfg_attr(coverage_nightly, coverage(off))] on test-difficult functions.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
+
+[workspace.metadata.release]
+# Never publish to crates.io — this is a private application.
+publish = false
+tag-name = "v{{version}}"
+# Commit and tag only; push is done by scripts/release.sh from the host
+# where git credentials live.
+push = false
+sign-tag = false
+pre-release-commit-message = "update: release v{{version}}"

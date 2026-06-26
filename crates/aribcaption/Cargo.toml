@@ -6,3 +6,12 @@ description = "Safe Rust wrappers for libaribcaption (ARIB STD-B24 caption decod
 
 [dependencies]
 aribcaption-sys = { path = "../aribcaption-sys" }
+
+[package.metadata.release]
+# Version is pinned to the parent workspace; do not release independently.
+release = false
+
+# Declare coverage_nightly as a known cfg so the unexpected_cfg lint doesn't fire.
+# cargo-llvm-cov sets this automatically when using nightly.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }

@@ -9,7 +9,7 @@
 
 ```
 src/
-├── main.rs          # axumサーバ、起動時スキャン、ルータ組み立て
+├── main.rs          # axumサーバ起動、起動時スキャン (routes::build_router() を呼ぶ)
 ├── lib.rs           # クレートルート (モジュール宣言)
 ├── config.rs        # config.toml 読み込み
 ├── db.rs            # SQLiteスキーマ・接続プール
@@ -27,7 +27,7 @@ src/
 │   └── capture.rs   # ffmpeg 単一パスサムネ生成 (stock ffmpeg)
 │                    #   scale → select → 字幕PNGオーバーレイ → JPEG (1コマンド)
 ├── routes/
-│   ├── mod.rs       # AppState, display_title(), fmt_ms(), like_escape()
+│   ├── mod.rs       # AppState, build_router(), display_title(), fmt_ms(), like_escape()
 │   ├── search.rs    # GET /, GET /search
 │   ├── contact.rs   # GET /contact/{id} (コンタクトシート)
 │   ├── capture.rs   # GET /thumb/{id}/{n}, GET /full/{id}/{n}, POST /select/{id}/{n}, POST /recapture/{id}
@@ -81,6 +81,8 @@ cache/{ts_stem}/
 - 実装したら必ず検証コマンドを実行し、結果を報告してから次へ進む
 - 検証が失敗したら原因を報告し修正案を提示する。勝手に大きく設計変更しない
 - 残フェーズは `plans/` を参照 (phase5-scheduler / phase7-ai-search / phase8-multimodal)
+- **改修は feature ブランチで行い、PR → CIグリーン → main マージ** (main 直 push は緊急時・リリースのみ)
+- PR作成前に `/sync-docs` を実行してドキュメントずれを解消する
 
 ## 検証チェックリスト
 
@@ -98,6 +100,56 @@ scripts/dev.sh test
 ```
 
 いずれかが失敗した場合は、pushやPR作成の前に必ず修正すること。
+
+## テストカバレッジ運用 (二層モデル)
+
+**強制集合**（テスト可能なコード）→ `scripts/cov.sh fail` でしきい値ゲート。  
+**免除集合**（ffmpeg / FFI / サーバ起動など）→ `#[cfg_attr(coverage_nightly, coverage(off))]` を付与し計測から除外。別途 integration / 手動確認。
+
+```bash
+# HTMLレポートで未カバー行を赤表示
+scripts/cov.sh
+
+# テキストサマリ (行カバレッジ % のみ)
+scripts/cov.sh summary
+
+# CI相当のしきい値チェック (下回ると exit 1)
+scripts/cov.sh fail
+```
+
+### 新機能を追加したとき
+- **テスト可能なコード** → ユニットテストを追加する。`scripts/cov.sh fail` でしきい値割れがないか確認。
+- **テスト困難なコード**（外部プロセス・FFI・ライブDB依存など）→ 関数に `#[cfg_attr(coverage_nightly, coverage(off))]` を付ける。  
+  この diff がレビュー上で「ここは別途確認」の合意フックになる。
+
+**しきい値の調整**: `scripts/cov.sh summary` で実測後、数ポイント下げた値を  
+`scripts/cov.sh`（`THRESHOLD` 変数）と `.github/workflows/ci.yml`（`--fail-under-lines`）の  
+両方に反映する。テストが増えたら引き上げる方針。
+
+## ブランチ戦略
+
+```
+git switch -c feature/xxx   # main から派生して作業
+# 実装 → /sync-docs → 検証 (dev.sh fmt/clippy/test)
+git push -u origin feature/xxx
+# GitHub で PR 作成 → CI グリーン → squash merge → main
+```
+
+main ブランチ保護: PR 必須・CIグリーン必須 (admin は bypass 可)。
+Dependabot PR は CI 通過後に squash 自動マージ。
+
+## リリース手順
+
+`scripts/release.sh` が cargo-release をコンテナ内で実行し、バージョンbump・commit・タグ・push を一括処理する。
+タグ push 後は CI が自動で GitHub Release を生成する。
+
+```bash
+# main 上で実行。必ずクリーンな状態で。
+scripts/release.sh patch   # 0.1.0 → 0.1.1
+scripts/release.sh minor   # 0.1.0 → 0.2.0
+scripts/release.sh major   # 0.1.0 → 1.0.0
+scripts/release.sh 1.2.3   # 明示指定
+```
 
 ## コミット規約
 

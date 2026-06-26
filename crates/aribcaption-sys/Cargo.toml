@@ -10,3 +10,7 @@ links = "aribcaption"
 [build-dependencies]
 cmake = "0.1"
 bindgen = "0.72"
+
+[package.metadata.release]
+# Version is pinned to the parent workspace; do not release independently.
+release = false

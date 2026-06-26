@@ -21,6 +21,9 @@ pub type IngestGuard = Arc<Mutex<()>>;
 ///
 /// Returns the running `JobScheduler` (caller must keep it alive — drop = stop).
 /// Returns `Ok(None)` if `schedule_cron` is empty (scheduling disabled).
+// Registers a real async cron job; requires a live tokio runtime and pool.
+// Confirmed separately (integration / manual). Not included in the coverage gate.
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn start(
     config: Arc<Config>,
     pool: SqlitePool,

@@ -1,8 +1,14 @@
+// Enable #[coverage(off)] when instrumented by cargo-llvm-cov (nightly only).
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
 
+// CLI entry: requires a real DB, NAS mount, and libaribcaption FFI.
+// Confirmed separately (manual / integration). Not included in the coverage gate.
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()

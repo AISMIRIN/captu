@@ -1,18 +1,18 @@
+// Enable #[coverage(off)] when instrumented by cargo-llvm-cov (nightly only).
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use axum::{
-    routing::{get, post},
-    Router,
-};
 use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
-use captu::{config::Config, db, ingest, scheduler};
+use captu::{config::Config, db, ingest, routes, scheduler};
 
-mod routes;
-
+// Server bootstrap: requires a live DB, scheduler, and network listener.
+// Confirmed separately (integration / manual). Not included in the coverage gate.
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -56,25 +56,7 @@ async fn main() -> anyhow::Result<()> {
         gen_locks: Arc::new(Mutex::new(HashMap::new())),
     };
 
-    let app = Router::new()
-        .route("/", get(routes::search::index))
-        .route("/search", get(routes::search::search))
-        .route("/contact/{id}", get(routes::contact::contact))
-        .route("/thumb/{id}/{n}", get(routes::capture::thumb))
-        .route("/full/{id}/{n}", get(routes::capture::full))
-        .route("/select/{id}/{n}", post(routes::capture::select_frame))
-        .route("/api/episodes", get(routes::episodes::episodes))
-        .route("/api/tags", get(routes::tags::tag_options))
-        .route("/caption/{id}/tags", post(routes::tags::add_tag))
-        .route("/caption/{id}/tags/delete", post(routes::tags::delete_tag))
-        .route("/ingest/status", get(routes::ingest::status))
-        .route("/ingest/files", get(routes::ingest::files))
-        .route("/ingest/file/{id}", get(routes::ingest::file_detail))
-        .route("/ingest/clear/{id}", post(routes::ingest::clear))
-        .route("/reingest/{id}", post(routes::ingest::reingest))
-        .route("/recapture/{id}", post(routes::capture::recapture))
-        .nest_service("/static", ServeDir::new("ui/static"))
-        .with_state(state);
+    let app = routes::build_router(state).nest_service("/static", ServeDir::new("ui/static"));
 
     tracing::info!("listening on {}", addr);
 

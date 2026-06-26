@@ -27,7 +27,7 @@
 ```
 captu/
 ├── src/
-│   ├── main.rs                    # エントリーポイント・axumルータ組み立て
+│   ├── main.rs                    # エントリーポイント・axumサーバ起動 (routes::build_router() を呼ぶ)
 │   ├── lib.rs                     # クレートルート (モジュール宣言)
 │   ├── config.rs                  # 設定構造体・config.toml読み込み
 │   ├── db.rs                      # SQLiteスキーマ初期化・接続プール
@@ -43,7 +43,7 @@ captu/
 │   │   ├── mod.rs
 │   │   └── capture.rs             # ffmpeg 単一パスサムネ生成 (コンタクトシート / フル解像度)
 │   ├── routes/
-│   │   ├── mod.rs                 # AppState, display_title(), fmt_ms(), like_escape()
+│   │   ├── mod.rs                 # AppState, build_router(), display_title(), fmt_ms(), like_escape()
 │   │   ├── search.rs              # GET / , GET /search
 │   │   ├── contact.rs             # GET /contact/{id}
 │   │   ├── capture.rs             # GET /thumb/{id}/{n} , GET /full/{id}/{n}
@@ -118,7 +118,7 @@ scripts/dev.sh build
 
 ### テスト実行
 ```bash
-scripts/dev.sh test -p captu --lib
+scripts/dev.sh test
 ```
 
 ---
@@ -428,8 +428,8 @@ q・フィルタ・filter が全て未指定の場合は空結果を返す。
 指定 TS ファイルの詳細（status / pes_regen / 字幕数 / エラーメッセージ等）を HTML で返す。
 
 ### POST /ingest/clear/{id}
-指定 TS ファイルの status を `pending` にリセットし、関連キャッシュ（captions.pes / PNG / JPEG）を削除。
-次回スキャン時に完全再取り込みが走る。
+指定 TS ファイルの字幕・タグを削除し、関連キャッシュ（captions.pes / PNG / JPEG）を消去する。
+status は変更しない（`done` のまま）。完全な再取り込みを行うには `/reingest/{id}` を使う。
 
 ### POST /caption/{id}/tags
 タグ追加（冪等）。`Form { tag: String }` を受け取り、当該 caption の最新タグリストを HTML フラグメントで返す。

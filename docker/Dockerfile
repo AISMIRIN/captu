@@ -37,11 +37,18 @@ FROM builder-base AS dev
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
-    ffmpeg sqlite3 \
+    ffmpeg sqlite3 curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust components needed for development verification (fmt, clippy).
 RUN rustup component add rustfmt clippy
+
+# Coverage: nightly is used only for `cargo llvm-cov`; normal build/test stay stable.
+# coverage_attribute (#[coverage(off)]) is not yet stable as of rust:1.
+RUN rustup toolchain install nightly --component llvm-tools-preview
+RUN curl -LsSf \
+    https://github.com/taiki-e/cargo-llvm-cov/releases/latest/download/cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz \
+    | tar xzf - -C /usr/local/cargo/bin
 
 # Rounded M+ 1m for ARIB subtitle rendering (same font as runtime image)
 COPY docker/assets/fonts/rounded-mplus-1m-arib.ttf /usr/local/share/fonts/
