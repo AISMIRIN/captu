@@ -62,6 +62,9 @@ encoding_rs = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
+# Route integration tests: oneshot request dispatch and response body extraction.
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
 
 # Declare coverage_nightly as a known cfg so the unexpected_cfg lint doesn't fire.
 # This cfg is set automatically by cargo-llvm-cov when running under nightly,

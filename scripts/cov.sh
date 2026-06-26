@@ -23,10 +23,11 @@ cd "$REPO_ROOT"
 IGNORE='crates/aribcaption-sys/(vendor|src/bindings)'
 
 # Coverage threshold (line coverage %) — keep in sync with .github/workflows/ci.yml.
-# Baseline measured 2026-06-26: 47.96% with current coverage(off) marks.
-# Set conservatively below baseline; raise incrementally as tests or coverage(off) marks are added.
-# Target: 90% once testable/difficult split stabilises.
-THRESHOLD=45
+# Baseline measured 2026-06-26: 47.96% with initial coverage(off) marks.
+# Raised 2026-06-26: 84.32% after route/parser/ingest-op integration tests.
+# Set 4 points below measured value to absorb minor regressions.
+# Target: raise toward 90% as coverage improves.
+THRESHOLD=80
 
 case "${1:-html}" in
   summary)

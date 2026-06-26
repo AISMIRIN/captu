@@ -84,7 +84,7 @@ jobs:
         run: |
           cargo llvm-cov --workspace \
             --ignore-filename-regex 'crates/aribcaption-sys/(vendor|src/bindings)' \
-            --fail-under-lines 45 \
+            --fail-under-lines 80 \
             --html
 
       - uses: actions/upload-artifact@v4

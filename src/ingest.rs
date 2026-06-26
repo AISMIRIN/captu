@@ -112,6 +112,8 @@ pub async fn scan_and_enqueue(config: &Config, pool: &SqlitePool) -> Result<usiz
 }
 
 /// Start `config.ingest.concurrency` parallel workers and wait for all pending files.
+// Spawns tokio tasks that drive ffmpeg and FFI extraction; confirmed separately.
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn run_workers(config: Arc<Config>, pool: SqlitePool) -> Result<()> {
     let concurrency = config.ingest.concurrency.max(1) as usize;
     tracing::info!("ingest: starting {} worker(s)", concurrency);
@@ -137,6 +139,8 @@ pub async fn run_workers(config: Arc<Config>, pool: SqlitePool) -> Result<()> {
 ///
 /// Phases run strictly in sequence to keep the number of concurrent TS readers
 /// bounded by `config.ingest.concurrency` and avoid saturating NAS bandwidth.
+// Requires live NAS mount + ffmpeg + FFI; confirmed separately via manual/integration tests.
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn scan_and_ingest(config: Arc<Config>, pool: SqlitePool) -> Result<()> {
     // Phase 1: discover new files and stale rows.
     scan_and_enqueue(&config, &pool).await?;
@@ -153,6 +157,8 @@ pub async fn scan_and_ingest(config: Arc<Config>, pool: SqlitePool) -> Result<()
 }
 
 /// Each worker atomically claims one pending file at a time and processes it.
+// Inner tokio worker loop — spawned from run_workers; confirmed separately.
+#[cfg_attr(coverage_nightly, coverage(off))]
 async fn worker_loop(worker_id: usize, config: Arc<Config>, pool: SqlitePool) {
     loop {
         // Atomically move one 'pending' row to 'ingesting'.
@@ -205,6 +211,8 @@ async fn worker_loop(worker_id: usize, config: Arc<Config>, pool: SqlitePool) {
     }
 }
 
+// Drives ffmpeg (capture.rs) and libaribcaption FFI (subtitle.rs); confirmed separately.
+#[cfg_attr(coverage_nightly, coverage(off))]
 async fn do_ingest(path: &Path, config: &Config, pool: &SqlitePool, ts_file_id: i64) -> Result<()> {
     let path_buf = path.to_path_buf();
     let cache_dir = PathBuf::from(&config.paths.cache_dir);
@@ -518,6 +526,8 @@ pub async fn enqueue_missing_pes(config: &Config, pool: &SqlitePool) -> Result<u
 
 /// Spawn `concurrency` parallel workers to drain the `pes_regen = 1` queue.
 /// Mirrors `run_workers`.
+// Spawns tokio tasks that call PES demuxer on real TS files; confirmed separately.
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn run_pes_regen_workers(config: Arc<Config>, pool: SqlitePool) -> Result<()> {
     let concurrency = config.ingest.concurrency.max(1) as usize;
     tracing::info!("pes_regen: starting {} worker(s)", concurrency);
@@ -543,6 +553,8 @@ pub async fn run_pes_regen_workers(config: Arc<Config>, pool: SqlitePool) -> Res
 ///
 /// On error the row is still reset to 0 — the blob is cache-only, so a failed
 /// regen is logged and skipped; the next scan will re-queue if still needed.
+// Inner tokio worker loop — spawned from run_pes_regen_workers; confirmed separately.
+#[cfg_attr(coverage_nightly, coverage(off))]
 async fn pes_regen_worker_loop(worker_id: usize, config: Arc<Config>, pool: SqlitePool) {
     let cache_dir = PathBuf::from(&config.paths.cache_dir);
     loop {

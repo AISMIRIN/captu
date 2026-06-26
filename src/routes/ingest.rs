@@ -8,7 +8,7 @@ use serde::Deserialize;
 use sqlx::{QueryBuilder, Row, Sqlite};
 use std::path::PathBuf;
 
-use captu::ingest;
+use crate::ingest;
 
 use super::{display_title, like_escape, AppState, HtmlTemplate};
 

@@ -2,6 +2,12 @@
 //
 // All raw `aribcc_*` symbols are provided by the `aribcaption-sys` crate via
 // bindgen; this crate exposes only the safe, RAII-managed API.
+//
+// The entire crate is excluded from coverage: all functions are thin FFI
+// wrappers over libaribcaption and cannot be exercised without the native
+// library (tested separately via subtitle.rs integration).
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+#![cfg_attr(coverage_nightly, coverage(off))]
 
 use std::ffi::CStr;
 
