@@ -1,3 +1,6 @@
+// Enable #[coverage(off)] when instrumented by cargo-llvm-cov (nightly only).
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -13,6 +16,9 @@ use captu::{config::Config, db, ingest, scheduler};
 
 mod routes;
 
+// Server bootstrap: requires a live DB, scheduler, and network listener.
+// Confirmed separately (integration / manual). Not included in the coverage gate.
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()

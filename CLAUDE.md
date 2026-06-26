@@ -101,6 +101,31 @@ scripts/dev.sh test
 
 いずれかが失敗した場合は、pushやPR作成の前に必ず修正すること。
 
+## テストカバレッジ運用 (二層モデル)
+
+**強制集合**（テスト可能なコード）→ `scripts/cov.sh fail` でしきい値ゲート。  
+**免除集合**（ffmpeg / FFI / サーバ起動など）→ `#[cfg_attr(coverage_nightly, coverage(off))]` を付与し計測から除外。別途 integration / 手動確認。
+
+```bash
+# HTMLレポートで未カバー行を赤表示
+scripts/cov.sh
+
+# テキストサマリ (行カバレッジ % のみ)
+scripts/cov.sh summary
+
+# CI相当のしきい値チェック (下回ると exit 1)
+scripts/cov.sh fail
+```
+
+### 新機能を追加したとき
+- **テスト可能なコード** → ユニットテストを追加する。`scripts/cov.sh fail` でしきい値割れがないか確認。
+- **テスト困難なコード**（外部プロセス・FFI・ライブDB依存など）→ 関数に `#[cfg_attr(coverage_nightly, coverage(off))]` を付ける。  
+  この diff がレビュー上で「ここは別途確認」の合意フックになる。
+
+**しきい値の調整**: `scripts/cov.sh summary` で実測後、数ポイント下げた値を  
+`scripts/cov.sh`（`THRESHOLD` 変数）と `.github/workflows/ci.yml`（`--fail-under-lines`）の  
+両方に反映する。テストが増えたら引き上げる方針。
+
 ## ブランチ戦略
 
 ```

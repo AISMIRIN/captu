@@ -1,3 +1,6 @@
+// Enable #[coverage(off)] when instrumented by cargo-llvm-cov (nightly only).
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 use std::path::{Path, PathBuf};
 
 fn format_ms(ms: i64) -> String {
@@ -8,6 +11,9 @@ fn format_ms(ms: i64) -> String {
     format!("{:02}:{:02}:{:02}.{:03}", h, m, s, msec)
 }
 
+// CLI diagnostic entry: requires real TS files and libaribcaption FFI.
+// Confirmed separately (manual run). Not included in the coverage gate.
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {

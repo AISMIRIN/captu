@@ -103,6 +103,9 @@ pub(crate) fn encode_png(rgba: &[u8], w: u32, h: u32) -> Result<Vec<u8>> {
 /// Saves the raw PES packet list to `cache/{stem}/captions.pes` for later
 /// on-demand rendering.  Returns caption text and timestamps for DB insertion
 /// only — no bitmaps are rendered here.
+// Reads a real TS file and uses libaribcaption FFI; writes cache files.
+// Confirmed separately (integration / extract binary). Not included in the coverage gate.
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub fn extract_captions(
     ts_path: &Path,
     cache_dir: &Path,
@@ -205,6 +208,9 @@ pub fn extract_captions(
 ///
 /// Returns `Ok(true)` when a non-empty blob was written, `Ok(false)` when the
 /// TS has no caption stream or produced no PES packets.
+// Reads a real TS file via PES demux and writes cache files.
+// Confirmed separately (integration / extract binary). Not included in the coverage gate.
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub fn regenerate_caption_pes(ts_path: &Path, cache_dir: &Path) -> Result<bool> {
     let psi = pes::scan_psi(ts_path);
     let caption_pid = match psi.caption_pid {
@@ -238,6 +244,9 @@ pub fn regenerate_caption_pes(ts_path: &Path, cache_dir: &Path) -> Result<bool> 
 ///
 /// Returns `None` when no subtitle is visible at the given PTS (e.g. the TS
 /// has no caption stream, or the renderer produced no pixels).
+// Uses libaribcaption FFI (Decoder + Renderer) and reads/writes cache files.
+// Confirmed separately (integration / manual). Not included in the coverage gate.
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub fn ensure_caption_png(
     cfg: &CaptureConfig,
     cache_dir: &Path,
