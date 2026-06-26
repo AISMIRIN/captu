@@ -11,13 +11,13 @@
     </div>
   </div>
 
-  {# Search form — htmx swaps #files-results with the same div from the response #}
+  {# Search form — htmx swaps #files-results on text input or status change (no submit button needed) #}
   <form
     hx-get="/ingest/files"
     hx-target="#files-results"
     hx-select="#files-results"
     hx-swap="outerHTML"
-    hx-trigger="submit, change delay:300ms from:select"
+    hx-trigger="keyup changed delay:300ms from:input[name='q'], change delay:300ms from:select"
     class="flex gap-2 mb-6"
   >
     <input
@@ -38,10 +38,6 @@
       <option value="ingesting" {% if status_filter == "ingesting" %}selected{% endif %}>処理中</option>
     </select>
     <input type="hidden" name="page" value="0">
-    <button
-      type="submit"
-      class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
-    >絞り込み</button>
   </form>
 
   {# Results container — swapped by htmx on search/page change #}

@@ -18,6 +18,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+/** Reset the enlarged preview to the loading skeleton state. */
+function setEnlargedLoading() {
+    var e = document.getElementById('enlarged');
+    if (!e) return;
+    e.classList.add('opacity-0');
+    e.parentElement.classList.add('animate-pulse', 'bg-gray-700');
+}
+
 /** Highlight the chosen thumbnail, update the enlarged preview, and persist the selection. */
 function selectFrame(n) {
     selectedFrame = n;
@@ -30,6 +38,7 @@ function selectFrame(n) {
     // Update enlarged preview above the thumbnail strip.
     var enlarged = document.getElementById('enlarged');
     if (enlarged && _captionId != null) {
+        setEnlargedLoading();
         enlarged.src = '/full/' + _captionId + '/' + n;
     }
 
@@ -122,6 +131,7 @@ async function recapture(captionId) {
         // Reload enlarged preview.
         const enlarged = document.getElementById('enlarged');
         if (enlarged) {
+            setEnlargedLoading();
             enlarged.src = enlarged.src.split('?')[0] + v;
         }
 

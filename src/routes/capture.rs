@@ -1,3 +1,5 @@
+// Route handlers: GET /thumb/{id}/{n}, GET /full/{id}/{n}, GET /preview/{id},
+//                 POST /select/{id}/{n}, POST /recapture/{id}
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -75,6 +77,52 @@ pub async fn thumb(
         &stem,
         id,
         n,
+    );
+
+    serve_jpeg(path).await
+}
+
+/// GET /preview/:id  — serve a subtitle-free single-frame preview JPEG.
+///
+/// Generated on first access; subsequent requests return the cached file.
+/// Used by search results before full contact-sheet thumbnails are available.
+/// Does not write to the `thumbnails` table — subtitle-composited thumbnail
+/// generation (via /thumb) remains a separate step triggered by the contact sheet.
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub async fn preview(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let (ts_path, pts_start, pts_end) = lookup_caption(&state, id).await?;
+
+    let lock: Arc<AsyncMutex<()>> = {
+        let mut map = state.gen_locks.lock().unwrap();
+        map.entry(id)
+            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+            .clone()
+    };
+    let _guard = lock.lock().await;
+
+    let cfg = state.config.clone();
+    let ts_path_cl = ts_path.clone();
+    tokio::task::spawn_blocking(move || {
+        capture::ensure_preview(&cfg, &ts_path_cl, id, pts_start, pts_end)
+    })
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .map_err(|e| {
+        tracing::error!("preview gen failed {}: {:#}", id, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let stem = ts_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let path = capture::preview_path(
+        std::path::Path::new(&state.config.paths.cache_dir),
+        &stem,
+        id,
     );
 
     serve_jpeg(path).await
