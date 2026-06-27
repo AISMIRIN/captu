@@ -25,6 +25,8 @@ use super::AppState;
 /// On successful generation, records the caption in `thumbnails` with the
 /// default selected_frame (middle frame).  OR IGNORE means an existing
 /// user selection is never overwritten.
+// axum handler; drives ensure_thumbnails → real ffmpeg on a live TS file + DB write.
+// Confirmed separately (integration / manual). Not included in the coverage gate.
 #[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn thumb(
     State(state): State<AppState>,
@@ -88,6 +90,8 @@ pub async fn thumb(
 /// Used by search results before full contact-sheet thumbnails are available.
 /// Does not write to the `thumbnails` table — subtitle-composited thumbnail
 /// generation (via /thumb) remains a separate step triggered by the contact sheet.
+// axum handler; calls ensure_preview → real ffmpeg on a live TS file.
+// Confirmed separately (integration / manual). Not included in the coverage gate.
 #[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn preview(
     State(state): State<AppState>,
@@ -159,6 +163,8 @@ pub async fn select_frame(
 /// Generates the frame on first access using the full `cfg.width × cfg.height`
 /// resolution and `cfg.jpeg_quality`.  Subsequent requests return the cached file.
 /// Uses the same per-caption lock as `thumb` to avoid duplicate ffmpeg runs.
+// axum handler; calls ensure_full → real ffmpeg on a live TS file.
+// Confirmed separately (integration / manual). Not included in the coverage gate.
 #[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn full(
     State(state): State<AppState>,
@@ -206,6 +212,8 @@ pub async fn full(
 /// /thumb or /full request regenerates them from the TS file.
 /// Uses the same per-caption lock as `thumb`/`full` to prevent races with
 /// in-flight generation.
+// axum handler; clears cached images via blocking IO, then relies on live TS + ffmpeg to regen.
+// Confirmed separately (integration / manual). Not included in the coverage gate.
 #[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn recapture(State(state): State<AppState>, Path(id): Path<i64>) -> Response {
     let (ts_path, _, _) = match lookup_caption(&state, id).await {
@@ -261,6 +269,8 @@ async fn lookup_caption(state: &AppState, id: i64) -> Result<(PathBuf, i64, i64)
     Ok((PathBuf::from(row.path), row.pts_start, row.pts_end))
 }
 
+// Async IO helper: reads a cached JPEG from disk and builds the HTTP response.
+// Confirmed separately (integration / manual). Not included in the coverage gate.
 #[cfg_attr(coverage_nightly, coverage(off))]
 async fn serve_jpeg(path: PathBuf) -> Result<impl IntoResponse, StatusCode> {
     let bytes = tokio::fs::read(&path).await.map_err(|e| {

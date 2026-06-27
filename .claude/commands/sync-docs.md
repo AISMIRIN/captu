@@ -15,6 +15,9 @@ Then read the three documentation files:
 - `docs/spec.md`
 - `CLAUDE.md`
 
+Also note `CLAUDE.local.md` (gitignored, personal — may not exist) if present.
+It holds personal / environment-specific notes, **not** public facts.
+
 Run `git diff main...HEAD` (or, if on main, `git diff HEAD~1`) to see what changed recently, and focus on where those changes affect documented facts.
 
 ## What to fix
@@ -25,6 +28,8 @@ For each of the three docs, fix only the sections that have drifted from reality
 - **docs/spec.md**: any module descriptions, route tables, or data-flow diagrams that no longer match the code
 
 Rules:
+- **Tracked vs local scope**: `README.md` / `docs/spec.md` / `CLAUDE.md` are committed and public — write only code-derived facts that are safe to publish. Personal / environment-specific facts (local paths, machine-specific config, personal external-tool workflows, etc.) belong in the gitignored `CLAUDE.local.md`, not in the public docs.
+- Do **not** copy or migrate content from `CLAUDE.local.md` into the three public documents (prevents leaking personal config into a public repo).
 - Touch only the **minimum** set of lines needed to make docs match code
 - Preserve the existing writing tone and language (Japanese prose where already Japanese)
 - Do **not** rewrite sections that are already accurate

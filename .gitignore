@@ -7,4 +7,5 @@ config.toml
 *.ts
 /plans/
 /.claude/settings.local.json
+/CLAUDE.local.md
 /.zed/
