@@ -105,7 +105,8 @@ scripts/dev.sh test
 ## テストカバレッジ運用 (二層モデル)
 
 **強制集合**（テスト可能なコード）→ `scripts/cov.sh fail` でしきい値ゲート。  
-**免除集合**（ffmpeg / FFI / サーバ起動など）→ `#[cfg_attr(coverage_nightly, coverage(off))]` を付与し計測から除外。別途 integration / 手動確認。
+**免除集合**（ffmpeg / FFI / サーバ起動など）→ `#[cfg_attr(coverage_nightly, coverage(off))]` を付与し計測から除外。別途 integration / 手動確認。  
+属性の**直上**に除外理由コメントを**必ず**付ける（下記フォーマット参照）。
 
 ```bash
 # HTMLレポートで未カバー行を赤表示
@@ -120,8 +121,16 @@ scripts/cov.sh fail
 
 ### 新機能を追加したとき
 - **テスト可能なコード** → ユニットテストを追加する。`scripts/cov.sh fail` でしきい値割れがないか確認。
-- **テスト困難なコード**（外部プロセス・FFI・ライブDB依存など）→ 関数に `#[cfg_attr(coverage_nightly, coverage(off))]` を付ける。  
+- **テスト困難なコード**（外部プロセス・FFI・ライブDB依存など）→ 属性の直上に除外理由コメントを付けてから `#[cfg_attr(coverage_nightly, coverage(off))]` を付ける。  
+  コメントは英語 1〜2行で「テスト困難な理由」と「別途どう確認するか」を書く。  
   この diff がレビュー上で「ここは別途確認」の合意フックになる。
+
+  ```rust
+  // <reason why unit testing is impractical, e.g. spawns ffmpeg / FFI / live DB / server boot>.
+  // Confirmed separately (integration / manual). Not included in the coverage gate.
+  #[cfg_attr(coverage_nightly, coverage(off))]
+  pub async fn my_handler(...) {
+  ```
 
 **しきい値の調整**: `scripts/cov.sh summary` で実測後、数ポイント下げた値を  
 `scripts/cov.sh`（`THRESHOLD` 変数）と `.github/workflows/ci.yml`（`--fail-under-lines`）の  
