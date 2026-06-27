@@ -138,6 +138,13 @@ scripts/cov.sh fail
 
 ## ブランチ戦略
 
+### 作業開始手順（必須）
+
+新しい作業を始める前に必ず **`/prep-branch`** を実行する（main 最新化 → 新規 feature 派生 or 既存ブランチに main 取り込み）。  
+引数: なし=新規ブランチ（作業内容から命名）／`current`=現在のブランチ継続／`feature/xxx`=指定ブランチ。いずれも main は対象にしない。詳細手順はスキル側に定義。
+
+### PR フロー
+
 ```
 git switch -c feature/xxx   # main から派生して作業
 # 実装 → /sync-docs → 検証 (dev.sh fmt/clippy/test)
