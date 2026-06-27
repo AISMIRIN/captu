@@ -4,9 +4,9 @@ services:
       context: .
       dockerfile: docker/Dockerfile
       target: runtime
-    user: "1000:1000"
+    user: "${CAPTU_UID:-1000}:${CAPTU_GID:-1000}"
     ports:
-      - "8000:8000"
+      - "${CAPTU_PORT:-8000}:8000"
     volumes:
       - ./config.toml:/app/config.toml:ro
       - ./data:/app/data

@@ -77,7 +77,7 @@ scripts/dev.sh run --bin extract -- /mnt/nas/video/sample.ts
 CAPTU_NAS_HOST=/mnt/your/recordings scripts/dev.sh run --bin ingest_cli -- --scan /mnt/nas/video
 
 # 本番 (runtime ターゲット — stock ffmpeg + aribcaption-sys static link)
-cp .env.example .env                # CAPTU_NAS_HOST（ホスト側録画ディレクトリ）を設定
+cp .env.example .env                # CAPTU_NAS_HOST / CAPTU_UID / CAPTU_GID / CAPTU_PORT を設定
 cp config.toml.example config.toml  # 録画ディレクトリ等を設定
 docker compose up --build -d
 ```
@@ -96,7 +96,7 @@ docker compose up --build -d
 | `ingest.concurrency` | 並列取り込みワーカー数 |
 
 環境変数 `CAPTU_NAS_MOUNT / CAPTU_TS_GLOB / CAPTU_DB_PATH / CAPTU_CACHE_DIR` でコンテナ内の設定値を上書き可能。
-`CAPTU_NAS_HOST`（`.env` で設定）は compose.yaml がホスト側ディレクトリをコンテナにマウントする際に使う別変数。
+`CAPTU_NAS_HOST` / `CAPTU_UID` / `CAPTU_GID` / `CAPTU_PORT`（`.env` で設定）は compose.yaml がホスト側マウント・UID・ポートを指定する際に使う別変数。
 
 ## CLIの使い方
 
