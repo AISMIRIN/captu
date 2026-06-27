@@ -372,7 +372,10 @@ async fn reingest_clears_captions_and_queues_file() {
     // The file is re-queued; the spawned worker may already have moved it from
     // 'pending' to 'ingesting'/'error', so assert only that it is no longer done.
     let st = get_status(pool, file_id).await;
-    assert_ne!(st, "done", "reingest should take the file out of the done state");
+    assert_ne!(
+        st, "done",
+        "reingest should take the file out of the done state"
+    );
 }
 
 #[tokio::test]
