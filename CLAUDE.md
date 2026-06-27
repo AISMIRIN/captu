@@ -81,7 +81,7 @@ cache/{ts_stem}/
 
 - 実装したら必ず検証コマンドを実行し、結果を報告してから次へ進む
 - 検証が失敗したら原因を報告し修正案を提示する。勝手に大きく設計変更しない
-- 残フェーズは `plans/` を参照 (phase5-scheduler / phase7-ai-search / phase8-multimodal)
+- 個人的・環境固有の作業メモは git 管理外の `CLAUDE.local.md` に置く (自動ロードされる)
 - **改修は feature ブランチで行い、PR → CIグリーン → main マージ** (main 直 push は緊急時・リリースのみ)
 - PR作成前に `/sync-docs` を実行してドキュメントずれを解消する
 
