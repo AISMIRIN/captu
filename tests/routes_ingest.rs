@@ -354,17 +354,25 @@ async fn reingest_existing_file_returns_200() {
 }
 
 #[tokio::test]
-async fn reingest_resets_status_to_pending() {
+async fn reingest_clears_captions_and_queues_file() {
     let app = make_app_seeded().await;
     let pool = &app.state.pool;
 
     let file_id = insert_ts_file(pool, "/nas/ri2.ts", "ri2.ts", "done").await;
+    insert_caption(pool, file_id, "to reingest").await;
 
     let (status, _) = oneshot(app.router, post_form(&format!("/reingest/{file_id}"), "")).await;
     assert_eq!(status, 200);
 
+    // Reset deletes captions; the failing background worker (nonexistent TS path)
+    // never re-inserts them, so this observation does not race the worker.
+    let count = count_captions(pool, file_id).await;
+    assert_eq!(count, 0, "reingest should clear existing captions");
+
+    // The file is re-queued; the spawned worker may already have moved it from
+    // 'pending' to 'ingesting'/'error', so assert only that it is no longer done.
     let st = get_status(pool, file_id).await;
-    assert_eq!(st, "pending", "reingest should reset status to pending");
+    assert_ne!(st, "done", "reingest should take the file out of the done state");
 }
 
 #[tokio::test]
