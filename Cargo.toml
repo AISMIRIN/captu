@@ -22,7 +22,7 @@ path = "src/bin/ingest_cli.rs"
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["fs", "trace"] }
+tower-http = { version = "0.7", features = ["fs", "trace"] }
 
 # Template (compile-time validation)
 # askama_axum was deprecated; IntoResponse is handled by routes::HtmlTemplate.
