@@ -29,7 +29,7 @@ tower-http = { version = "0.6", features = ["fs", "trace"] }
 askama = "0.16"
 
 # DB (compile-time query validation)
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "macros", "migrate"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "chrono", "macros", "migrate"] }
 
 # Config
 toml = "1.1"
