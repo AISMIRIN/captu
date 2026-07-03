@@ -72,16 +72,17 @@
   <div class="flex gap-3">
     <button
       hx-post="/reingest/{{ file.id }}"
+      hx-confirm="字幕情報を破棄してTSファイルから取り込み直します。よいですか？"
       hx-target="#detail-result"
       hx-swap="innerHTML"
       class="px-4 py-2 rounded-lg bg-yellow-700 hover:bg-yellow-600 text-white text-sm font-medium transition-colors"
     >取り込み直し</button>
     <button
       hx-post="/ingest/clear/{{ file.id }}"
+      hx-confirm="字幕情報とキャッシュ画像を削除します。よいですか？"
       hx-target="#detail-result"
       hx-swap="innerHTML"
       class="px-4 py-2 rounded-lg bg-red-800 hover:bg-red-700 text-white text-sm font-medium transition-colors"
-      onclick="return confirm('字幕情報とキャッシュ画像を削除します。よいですか？')"
     >字幕を消す</button>
   </div>
 

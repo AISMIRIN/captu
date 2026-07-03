@@ -89,12 +89,14 @@
             >情報確認</a>
             <button
               hx-post="/reingest/{{ f.id }}"
+              hx-confirm="字幕情報を破棄してTSファイルから取り込み直します。よいですか？"
               hx-target="#row-result-{{ f.id }}"
               hx-swap="innerHTML"
               class="text-xs text-gray-500 hover:text-yellow-400 transition-colors"
             >取り込み直し</button>
             <button
               hx-post="/ingest/clear/{{ f.id }}"
+              hx-confirm="字幕情報とキャッシュ画像を削除します。よいですか？"
               hx-target="#row-result-{{ f.id }}"
               hx-swap="innerHTML"
               class="text-xs text-gray-500 hover:text-red-400 transition-colors"

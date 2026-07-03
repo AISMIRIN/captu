@@ -14,7 +14,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (document.querySelector('.thumb-frame')) {
         const initial = root ? (parseInt(root.dataset.initialFrame, 10) || 0) : 0;
-        selectFrame(initial);
+        // Initial highlight only — merely opening the page must not persist a
+        // selection (that would mark the caption as generated in the filters).
+        selectFrame(initial, false);
     }
 });
 
@@ -26,8 +28,12 @@ function setEnlargedLoading() {
     e.parentElement.classList.add('animate-pulse', 'bg-gray-700');
 }
 
-/** Highlight the chosen thumbnail, update the enlarged preview, and persist the selection. */
-function selectFrame(n) {
+/**
+ * Highlight the chosen thumbnail and update the enlarged preview.
+ * Persists the selection to the server unless persist === false
+ * (the initial page-load call must not create a thumbnails row).
+ */
+function selectFrame(n, persist) {
     selectedFrame = n;
     document.querySelectorAll('.thumb-frame').forEach(el => {
         var active = parseInt(el.dataset.frame, 10) === n;
@@ -43,7 +49,7 @@ function selectFrame(n) {
     }
 
     // Persist to server so search results show the chosen frame as preview.
-    if (_captionId != null) {
+    if (persist !== false && _captionId != null) {
         fetch('/select/' + _captionId + '/' + n, { method: 'POST' }).catch(() => {});
     }
 }

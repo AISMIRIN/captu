@@ -51,8 +51,8 @@ function setFilter(value, noSearch) {
   if (!noSearch) triggerSearch();
 }
 
-// ── Save current search state to sessionStorage ───────────────────────────────
-function saveSearchState() {
+// ── Collect current search state from the DOM ─────────────────────────────────
+function collectSearchState() {
   var q = document.querySelector('[name="q"]');
   var programSelect = document.getElementById('program-select');
   var epSel = document.querySelector('#ep-or-sub [name="ep"]');
@@ -60,7 +60,7 @@ function saveSearchState() {
   var dateFrom = document.getElementById('date-from');
   var dateTo = document.getElementById('date-to');
   var filter = document.getElementById('active-filter');
-  sessionStorage.setItem('captu_search', JSON.stringify({
+  return {
     q: q ? q.value : '',
     program_id: programSelect ? programSelect.value : '',
     ep: epSel ? epSel.value : '',
@@ -69,7 +69,61 @@ function saveSearchState() {
     date_to: dateTo ? dateTo.value : '',
     filter: filter ? filter.value : 'all',
     tags: activeTags
-  }));
+  };
+}
+
+// ── Save current search state to sessionStorage + URL ─────────────────────────
+// The URL uses the same parameter names as GET /search so a copied link
+// restores the exact same search when opened in a new tab.
+function saveSearchState() {
+  var state = collectSearchState();
+  sessionStorage.setItem('captu_search', JSON.stringify(state));
+
+  var params = new URLSearchParams();
+  if (state.q) params.set('q', state.q);
+  if (state.program_id) params.set('program_id', state.program_id);
+  if (state.ep) params.set('ep', state.ep);
+  if (state.sub) params.set('sub', state.sub);
+  if (state.date_from) params.set('date_from', state.date_from);
+  if (state.date_to) params.set('date_to', state.date_to);
+  if (state.tags.length) params.set('tags', state.tags.join('\n'));
+  if (state.filter && state.filter !== 'all') params.set('filter', state.filter);
+  var qs = params.toString();
+  history.replaceState(null, '', qs ? '?' + qs : location.pathname);
+}
+
+// ── Read search state from URL query parameters (null if none present) ────────
+function stateFromUrl() {
+  var params = new URLSearchParams(location.search);
+  if (![...params.keys()].length) return null;
+  return {
+    q: params.get('q') || '',
+    program_id: params.get('program_id') || '',
+    ep: params.get('ep') || '',
+    sub: params.get('sub') || '',
+    date_from: params.get('date_from') || '',
+    date_to: params.get('date_to') || '',
+    filter: params.get('filter') || 'all',
+    tags: (params.get('tags') || '').split('\n').filter(function(t) { return t.trim(); })
+  };
+}
+
+// ── Reset every filter and the query, then re-run the (now empty) search ──────
+function resetFilters() {
+  var q = document.querySelector('[name="q"]');
+  if (q) q.value = '';
+  var programSelect = document.getElementById('program-select');
+  if (programSelect) programSelect.value = '';
+  var epOrSub = document.getElementById('ep-or-sub');
+  if (epOrSub) epOrSub.innerHTML = '';
+  var df = document.getElementById('date-from');
+  if (df) df.value = '';
+  var dt = document.getElementById('date-to');
+  if (dt) dt.value = '';
+  activeTags = [];
+  renderTagChips();
+  setFilter('all', true);
+  triggerSearch();
 }
 
 // ── Trigger search via dosearch custom event (avoids keyup[key] filter issue) ─
@@ -114,12 +168,14 @@ document.body.addEventListener('htmx:afterSwap', function(e) {
   }
 });
 
-// ── Restore search state from sessionStorage on page load ─────────────────────
+// ── Restore search state on page load (URL params win over sessionStorage) ────
 document.addEventListener('DOMContentLoaded', function() {
-  var saved = sessionStorage.getItem('captu_search');
-  if (!saved) return;
-  var state;
-  try { state = JSON.parse(saved); } catch(e) { return; }
+  var state = stateFromUrl();
+  if (!state) {
+    var saved = sessionStorage.getItem('captu_search');
+    if (!saved) return;
+    try { state = JSON.parse(saved); } catch(e) { return; }
+  }
 
   // Restore text input.
   var qInput = document.querySelector('[name="q"]');
