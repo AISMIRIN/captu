@@ -46,7 +46,7 @@
   </div>
 
   {# Thumbnail strip: tap a frame to update the enlarged preview above #}
-  <div class="grid grid-cols-6 gap-1 mb-4" id="thumb-grid">
+  <div class="grid grid-cols-3 sm:grid-cols-6 gap-1 mb-4" id="thumb-grid">
     {% for n in frames %}
     <div
       class="thumb-frame rounded overflow-hidden border-2 border-transparent cursor-pointer transition-colors"
@@ -98,6 +98,7 @@
       >情報確認</a>
       <button
         hx-post="/reingest/{{ ts_file_id }}"
+        hx-confirm="字幕情報を破棄してTSファイルから取り込み直します。よいですか？"
         hx-target="#reingest-result"
         hx-swap="innerHTML"
         class="text-xs text-gray-600 hover:text-yellow-400 transition-colors"

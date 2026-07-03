@@ -52,7 +52,7 @@ ui/
 │   └── fragments/   # episodes.html / search_results.html / tag_options.html / tags.html
 └── static/
     ├── app.js       # フレーム選択・JPEG共有/コピー/ダウンロード (contact系)
-    └── search.js    # 検索フィルタ・タグチップ・セッション復元 (index系)
+    └── search.js    # 検索フィルタ・タグチップ・状態復元 (URL/セッション) (index系)
 ```
 
 ## キャッシュ構成
