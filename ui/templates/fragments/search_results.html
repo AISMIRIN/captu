@@ -1,12 +1,19 @@
 {% import "macros.html" as m %}
+{% if page == 0 && !results.is_empty() %}
+<div class="text-sm text-gray-500 mb-3">{{ total }} 件</div>
+{% endif %}
 {% for r in results %}
 <div class="mb-3 rounded-lg bg-gray-800 border border-gray-700 hover:border-gray-500 transition-colors">
   <a href="/contact/{{ r.id }}" class="flex gap-3 p-3 cursor-pointer">
     {# Preview thumbnail: subtitle-composited /thumb when generated, else /preview (subtitle-free) #}
-    <img src="{% if r.has_thumb %}/thumb/{{ r.id }}/{{ r.preview_frame }}{% else %}/preview/{{ r.id }}{% endif %}"
-         alt=""
-         class="w-24 h-auto rounded shrink-0 object-cover bg-gray-700"
-         loading="lazy">
+    {# Fixed aspect-video box prevents layout shift; bg-gray-700 acts as a loading skeleton #}
+    <div class="relative w-24 shrink-0 self-start rounded overflow-hidden bg-gray-700 animate-pulse aspect-video">
+      <img src="{% if r.has_thumb %}/thumb/{{ r.id }}/{{ r.preview_frame }}{% else %}/preview/{{ r.id }}{% endif %}"
+           alt=""
+           class="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-200"
+           loading="lazy"
+           onload="this.classList.remove('opacity-0'); this.parentElement.classList.remove('animate-pulse', 'bg-gray-700')">
+    </div>
     <div class="min-w-0 flex-1">
       <div class="flex items-baseline justify-between gap-4 mb-1">
         <span class="font-medium text-blue-400 truncate">{{ r.display_title }}</span>

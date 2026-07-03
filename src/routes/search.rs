@@ -459,7 +459,7 @@ mod tests {
     fn build_sql(f: SearchFilters<'_>) -> String {
         let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new("");
         push_search_where(&mut qb, &f);
-        qb.sql().to_string()
+        qb.sql().as_str().to_string()
     }
 
     #[test]
