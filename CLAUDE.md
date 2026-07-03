@@ -25,12 +25,13 @@ src/
 ├── media/
 │   ├── mod.rs
 │   └── capture.rs   # ffmpeg 単一パスサムネ生成 (stock ffmpeg)
-│                    #   scale → select → 字幕PNGオーバーレイ → JPEG (1コマンド)
+│                    #   bwdif → select → scale → 字幕PNGオーバーレイ → JPEG (1コマンド)
+│                    #   検索プレビューは時刻直シーク + -frames:v 1 の単フレーム取得
 ├── routes/
 │   ├── mod.rs       # AppState, build_router(), display_title(), fmt_ms(), like_escape()
 │   ├── search.rs    # GET /, GET /search
 │   ├── contact.rs   # GET /contact/{id} (コンタクトシート)
-│   ├── capture.rs   # GET /thumb/{id}/{n}, GET /full/{id}/{n}, POST /select/{id}/{n}, POST /recapture/{id}
+│   ├── capture.rs   # GET /thumb/{id}/{n}, GET /full/{id}/{n}, GET /preview/{id}, POST /select/{id}/{n}, POST /recapture/{id}
 │   ├── episodes.rs  # GET /api/episodes
 │   ├── tags.rs      # POST /caption/{id}/tags, POST /caption/{id}/tags/delete, GET /api/tags
 │   └── ingest.rs    # GET /ingest/status, GET /ingest/files, GET /ingest/file/{id}

@@ -41,12 +41,12 @@ captu/
 │   │   └── subtitle.rs            # libaribcaption FFI経由の字幕抽出・on-demand PNG描画
 │   ├── media/
 │   │   ├── mod.rs
-│   │   └── capture.rs             # ffmpeg 単一パスサムネ生成 (コンタクトシート / フル解像度)
+│   │   └── capture.rs             # ffmpeg 単一パスサムネ生成 (コンタクトシート / フル解像度 / 直シークプレビュー)
 │   ├── routes/
 │   │   ├── mod.rs                 # AppState, build_router(), display_title(), fmt_ms(), like_escape()
 │   │   ├── search.rs              # GET / , GET /search
 │   │   ├── contact.rs             # GET /contact/{id}
-│   │   ├── capture.rs             # GET /thumb/{id}/{n} , GET /full/{id}/{n}
+│   │   ├── capture.rs             # GET /thumb/{id}/{n} , GET /full/{id}/{n} , GET /preview/{id}
 │   │   │                          #   POST /select/{id}/{n} , POST /recapture/{id}
 │   │   ├── episodes.rs            # GET /api/episodes
 │   │   ├── tags.rs                # POST /caption/{id}/tags , POST /caption/{id}/tags/delete , GET /api/tags
@@ -80,6 +80,8 @@ captu/
 │       ├── captions.pes           # PESブロブ (取り込み時に保存)
 │       ├── sub/
 │       │   └── {caption_id}.png   # 字幕PNG (on-demand描画・キャッシュ)
+│       ├── preview/
+│       │   └── {caption_id}.jpg   # 字幕なし単フレームJPEG (検索結果プレビュー用、on-demand)
 │       ├── thumbs/
 │       │   └── {caption_id}_{n:02}.jpg  # コンタクトシートJPEG (縮小表示用)
 │       └── full/
@@ -343,13 +345,15 @@ pub struct EpgInfo {
 
 ```
 ffmpeg -y -ss {pre_seek} -t {dur} -i file:{ts} [-i {sub.png}]
-       -vf  "scale={W}:{H},setsar=1,select='eq(n,X)+…',setpts=N/FRAME_RATE/TB"
+       -vf  "bwdif=mode=send_frame,select='eq(n,X)+…',setpts=N/FRAME_RATE/TB,scale={W}:{H},setsar=1"
        # 字幕ありの場合は -filter_complex でオーバーレイ:
-       # "[0:v]scale=…,select='…',setpts=…[v];[v][1:v]overlay=eof_action=repeat[out]"
-       -fps_mode vfr -q:v {jpeg_quality} thumbs/_tmp_%d.jpg
+       # "[0:v]bwdif=…,select='…',setpts=…,scale=…,setsar=1[v];[1:v]scale=…[s];[v][s]overlay=eof_action=repeat[out]"
+       -fps_mode vfr -frames:v {N} -q:v {jpeg_quality} thumbs/_tmp_%d.jpg
 ```
 
-中間 MJPEG エンコード・プロセス間パイプを廃止し、scale → select → overlay を1パスで処理する。
+中間 MJPEG エンコード・プロセス間パイプを廃止し、bwdif → select → scale → overlay を1パスで処理する。
+bwdif は select より前（時間参照を維持したままインタレ解除）、scale は select より後（選択フレームのみ縮小）。
+`-frames:v {N}`（N = 選択フレーム数）で最後の選択フレーム出力後にデコードを打ち切る。
 
 **NAS越しシーク戦略:**
 - `-ss` を `-i` の前に置く（keyframe fast seek）→ NFS転送量最小化
@@ -359,15 +363,33 @@ ffmpeg -y -ss {pre_seek} -t {dur} -i file:{ts} [-i {sub.png}]
 ### フル解像度JPEG生成 (`ensure_full`)
 
 `GET /full/{id}/{n}` からトリガーされる単一フレーム取得。
-コンタクトシートと同一の ffmpeg シーク戦略だが、解像度とクオリティが異なる。
+コンタクトシートと同一の ffmpeg シーク戦略・フィルタ順だが、解像度とクオリティが異なる（`-frames:v 1`）。
+ユーザーが選択したフレーム n とビット単位で一致する必要があるため、frame-index 方式を維持する。
 
 ```
 ffmpeg -y -ss {pre_seek} -t {dur} -i file:{ts} [-i {sub.png}]
-       -vf  "scale={cfg.width}:{cfg.height},setsar=1,select='eq(n,X)',setpts=N/FRAME_RATE/TB"
-       -fps_mode vfr -q:v {cfg.jpeg_quality} cache/{stem}/full/{id}_{n:02}.jpg
+       -vf  "bwdif=mode=send_frame,select='eq(n,X)',setpts=N/FRAME_RATE/TB,scale={cfg.width}:{cfg.height},setsar=1"
+       -fps_mode vfr -frames:v 1 -q:v {cfg.jpeg_quality} cache/{stem}/full/{id}_{n:02}.jpg
 ```
 
 出力: `cache/{stem}/full/{caption_id}_{n:02}.jpg`（DL/共有用、初回アクセス時に生成・キャッシュ）
+
+### 字幕なしプレビュー生成 (`ensure_preview`)
+
+`GET /preview/{id}` からトリガーされる単一フレーム取得（検索結果カード用、字幕オーバーレイなし）。
+コンタクトシートの代表サンプル時刻（中央 rep_idx = thumb_count/2）へ **時刻直シーク** し、
+直前キーフレームからの数フレームだけをデコードする。ウィンドウ全体をデコードする
+frame-index 方式と異なり、表示フレームはコンタクトシートのフレーム n と厳密には一致しない
+（同時刻 ± 数フレーム。プレビュー用途では不可視）。
+
+```
+ffmpeg -y -ss {target_sec} -i file:{ts}
+       -vf "bwdif=mode=send_frame,scale={thumb_width}:{thumb_height},setsar=1"
+       -frames:v 1 -q:v {thumb_quality} cache/{stem}/preview/{id}.jpg
+```
+
+出力: `cache/{stem}/preview/{caption_id}.jpg`（初回アクセス時に生成・キャッシュ。
+コンタクトシート生成後は検索結果が `/thumb` URL に自然に切り替わる）
 
 ---
 
@@ -407,6 +429,13 @@ q・フィルタ・filter が全て未指定の場合は空結果を返す。
 フル解像度JPEG配信（`cfg.width × cfg.height`）。DL・Web Share・クリップボードコピー用。
 `/thumb` と同じ per-caption ロック制御。キャッシュ済みならそのまま返す。
 `cache/{stem}/full/{id}_{n:02}.jpg` に保存。
+
+### GET /preview/{id}
+字幕なし単フレームプレビューJPEG配信（`cfg.thumb_width × cfg.thumb_height`）。
+検索結果カードでコンタクトシート未生成の caption に表示する。
+`/thumb` と同じ per-caption ロック制御。キャッシュ済みならそのまま返す。
+`thumbnails` テーブルには書き込まない（字幕合成サムネ生成は `/thumb` 側の責務）。
+`cache/{stem}/preview/{id}.jpg` に保存。
 
 ### POST /select/{id}/{n}
 ユーザーが選んだフレーム番号を永続化。
