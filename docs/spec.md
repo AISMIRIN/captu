@@ -387,7 +387,7 @@ ffmpeg -y -ss {pre_seek} -t {dur} -i file:{ts} [-i {sub.png}]
 | `sub` | string | エピソードタイトルで部分一致絞り込み |
 | `date_from` | date | 放送日（以降） |
 | `date_to` | date | 放送日（以前） |
-| `tag` | string | タグで絞り込み |
+| `tags` | string | 改行区切りの複数タグで絞り込み（AND条件） |
 | `filter` | string | `all`（デフォルト） / `generated`（サムネあり） / `pending`（未生成） |
 | `page` | integer | 0始まりページ番号（50件/ページ） |
 
@@ -471,6 +471,7 @@ status は変更しない（`done` のまま）。完全な再取り込みを行
 
 - 字幕テキストと最大 `thumb_count` 枚のサムネをグリッド表示
 - サムネクリック → `selectFrame(n)` で選択状態更新 + `POST /select/{id}/{n}` 呼び出し
+  （初期表示時はハイライトのみで POST しない — 閲覧しただけでは `thumbnails` に記録されない）
 - 拡大プレビューを上部に表示
 
 ### JPEG取得後の処理 (static/app.js)

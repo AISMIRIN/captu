@@ -22,14 +22,14 @@ path = "src/bin/ingest_cli.rs"
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["fs", "trace"] }
+tower-http = { version = "0.7", features = ["fs", "trace"] }
 
 # Template (compile-time validation)
 # askama_axum was deprecated; IntoResponse is handled by routes::HtmlTemplate.
 askama = "0.16"
 
 # DB (compile-time query validation)
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "macros", "migrate"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "chrono", "macros", "migrate"] }
 
 # Config
 toml = "1.1"
