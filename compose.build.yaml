@@ -1,0 +1,9 @@
+# Overlay for building the runtime image from local sources instead of
+# pulling from GHCR. Usage:
+#   docker compose -f compose.yaml -f compose.build.yaml up --build -d
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: runtime

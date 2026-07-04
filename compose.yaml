@@ -1,9 +1,10 @@
 services:
   app:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      target: runtime
+    # Pull the CI-built multi-arch image from GHCR. Pin a release with
+    # CAPTU_TAG in .env (e.g. CAPTU_TAG=0.1.0); default follows latest.
+    # For a local source build, overlay compose.build.yaml:
+    #   docker compose -f compose.yaml -f compose.build.yaml up --build -d
+    image: ghcr.io/aismirin/captu:${CAPTU_TAG:-latest}
     user: "${CAPTU_UID:-1000}:${CAPTU_GID:-1000}"
     ports:
       - "${CAPTU_PORT:-8000}:8000"
@@ -14,8 +15,8 @@ services:
       - ${CAPTU_NAS_HOST}:/mnt/nas/video:ro
     restart: unless-stopped
     environment:
-      - TZ=Asia/Tokyo
-      - RUST_LOG=captu=debug,info
+      - TZ=${TZ:-Asia/Tokyo}
+      - RUST_LOG=${RUST_LOG:-captu=info,info}
       # Path overrides — change here without editing config.toml or rebuilding.
       # These are the prod defaults (matching config.toml); override in .env or here.
       - CAPTU_DB_PATH=/app/data/captions.db
