@@ -8,6 +8,19 @@ pub struct Config {
     pub capture: CaptureConfig,
     pub ingest: IngestConfig,
     pub server: ServerConfig,
+    /// Optional [cache] section; defaults keep cleanup disabled.
+    #[serde(default)]
+    pub cache: CacheConfig,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct CacheConfig {
+    /// Max total size (MiB) of the image caches (thumbs/full/preview/sub).
+    /// When the total exceeds this, the oldest files (by mtime) are deleted
+    /// after each scan cycle. 0 = unlimited (cleanup disabled).
+    /// captions.pes blobs are never counted or deleted.
+    #[serde(default)]
+    pub image_cache_max_mib: u64,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -133,6 +146,7 @@ impl Config {
                 host: "0.0.0.0".to_string(),
                 port: 8000,
             },
+            cache: CacheConfig::default(),
         }
     }
 }
@@ -186,6 +200,8 @@ port = 8080
         assert!(!c.ingest.require_captions);
         assert!(c.ingest.filter_include.is_empty());
         assert!(c.ingest.filter_exclude.is_empty());
+        // Missing [cache] section → cleanup disabled
+        assert_eq!(c.cache.image_cache_max_mib, 0);
     }
 
     #[test]

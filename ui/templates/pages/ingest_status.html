@@ -89,6 +89,23 @@
       </div>
     </div>
 
+    {# Image cache usage + bulk clear #}
+    <div class="flex items-center justify-between gap-3 bg-gray-800 rounded-lg px-4 py-3 mb-6">
+      <div class="text-sm text-gray-400">
+        画像キャッシュ: <span class="text-gray-200">{{ cache_size }}</span>（{{ cache_files }} ファイル）
+      </div>
+      <div class="flex items-center gap-3 min-w-0">
+        <span id="cache-result" class="text-xs text-gray-400 truncate"></span>
+        <button
+          hx-post="/ingest/cache/clear"
+          hx-confirm="画像キャッシュをすべて削除します。字幕・タグ・選択フレームは残り、画像は次回アクセス時に再生成されます。よいですか？"
+          hx-target="#cache-result"
+          hx-swap="innerHTML"
+          class="text-xs text-gray-500 hover:text-red-400 transition-colors shrink-0"
+        >全削除</button>
+      </div>
+    </div>
+
     {# Currently ingesting files #}
     {% if ingesting > 0 %}
     <div class="mb-6">

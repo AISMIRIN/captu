@@ -30,6 +30,7 @@ captu/
 │   │   ├── pes.rs     # ARIB字幕PESデマクサ
 │   │   └── subtitle.rs # libaribcaption FFI字幕抽出・on-demand描画
 │   ├── media/
+│   │   ├── cache.rs   # 画像キャッシュ管理 (容量LRU・手動削除)
 │   │   └── capture.rs # ffmpeg 単一パスサムネ生成
 │   ├── routes/        # axumルートハンドラ
 │   └── bin/
@@ -94,6 +95,7 @@ docker compose up --build -d
 | `capture.thumb_width/height` | コンタクトシート表示用縮小解像度 (デフォルト: 640×360) |
 | `capture.thumb_count` | コンタクトシートのサムネ枚数 |
 | `ingest.concurrency` | 並列取り込みワーカー数 |
+| `cache.image_cache_max_mib` | 画像キャッシュ合計上限 MiB (0=無制限。超過分はスキャン後に古い順で自動削除) |
 
 環境変数 `CAPTU_NAS_MOUNT / CAPTU_TS_GLOB / CAPTU_DB_PATH / CAPTU_CACHE_DIR` でコンテナ内の設定値を上書き可能。
 `CAPTU_NAS_HOST` / `CAPTU_UID` / `CAPTU_GID` / `CAPTU_PORT`（`.env` で設定）は compose.yaml がホスト側マウント・UID・ポートを指定する際に使う別変数。

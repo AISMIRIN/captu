@@ -8,6 +8,7 @@ use sqlx::SqlitePool;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::config::Config;
+use crate::media::cache::{self, cache_subtree};
 use crate::ts::{epg, pes as arib_pes, subtitle};
 
 /// Scan nas_mount, apply filters, and enqueue new files as 'pending'.
@@ -135,7 +136,7 @@ pub async fn run_workers(config: Arc<Config>, pool: SqlitePool) -> Result<()> {
     Ok(())
 }
 
-/// Convenience wrapper: scan → enqueue → regen-phase → ingest-phase.
+/// Convenience wrapper: scan → enqueue → regen-phase → ingest-phase → cache cleanup.
 ///
 /// Phases run strictly in sequence to keep the number of concurrent TS readers
 /// bounded by `config.ingest.concurrency` and avoid saturating NAS bandwidth.
@@ -153,7 +154,22 @@ pub async fn scan_and_ingest(config: Arc<Config>, pool: SqlitePool) -> Result<()
     }
 
     // Phase 3: ingest newly queued TS files.
-    run_workers(config, pool).await
+    run_workers(config.clone(), pool).await?;
+
+    // Phase 4: enforce the image-cache size limit (LRU by mtime, 0 = disabled).
+    let max_mib = config.cache.image_cache_max_mib;
+    if max_mib > 0 {
+        let cache_dir = PathBuf::from(&config.paths.cache_dir);
+        let freed = tokio::task::spawn_blocking(move || {
+            cache::enforce_image_cache_limit(&cache_dir, max_mib * 1024 * 1024)
+        })
+        .await??;
+        if freed > 0 {
+            tracing::info!("scan: image cache cleanup freed {} bytes", freed);
+        }
+    }
+
+    Ok(())
 }
 
 /// Each worker atomically claims one pending file at a time and processes it.
@@ -755,23 +771,9 @@ fn resolve_program_key(series_title: &str, title: &str) -> String {
     }
 }
 
-/// Resolve the per-TS cache subdirectory from the stored path string.
-///
-/// Returns `None` when the path has no file stem (e.g. dotfiles, directory paths)
-/// to prevent `remove_dir_all` from targeting the cache root.
-fn cache_subtree(cache_dir: &Path, ts_path_str: &str) -> Option<PathBuf> {
-    let stem = Path::new(ts_path_str).file_stem()?;
-    let stem_str = stem.to_string_lossy();
-    if stem_str.is_empty() {
-        return None;
-    }
-    Some(cache_dir.join(stem_str.as_ref()))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{cache_subtree, normalize_title, resolve_program_key};
-    use std::path::Path;
+    use super::{normalize_title, resolve_program_key};
 
     // ── normalize_title ────────────────────────────────────────────────────────
 
@@ -801,38 +803,6 @@ mod tests {
     #[test]
     fn normalize_title_empty() {
         assert_eq!(normalize_title(""), "");
-    }
-
-    // ── cache_subtree ──────────────────────────────────────────────────────────
-
-    #[test]
-    fn cache_subtree_normal_path() {
-        let cache = Path::new("/cache");
-        let result = cache_subtree(cache, "/nas/video/ep01.ts");
-        assert_eq!(result, Some(Path::new("/cache/ep01").to_path_buf()));
-    }
-
-    #[test]
-    fn cache_subtree_no_extension() {
-        let cache = Path::new("/cache");
-        let result = cache_subtree(cache, "/nas/video/ep01");
-        assert_eq!(result, Some(Path::new("/cache/ep01").to_path_buf()));
-    }
-
-    #[test]
-    fn cache_subtree_no_stem_returns_none() {
-        // Root path "/" has no file component at all → file_stem() = None → returns None
-        let cache = Path::new("/cache");
-        let result = cache_subtree(cache, "/");
-        assert!(result.is_none(), "root-only path must return None");
-    }
-
-    #[test]
-    fn cache_subtree_never_returns_cache_root() {
-        // Empty string has no stem → must not return the cache dir itself
-        let cache = Path::new("/cache");
-        let result = cache_subtree(cache, "");
-        assert!(result.is_none());
     }
 
     // ── resolve_program_key ────────────────────────────────────────────────────

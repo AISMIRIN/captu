@@ -385,6 +385,74 @@ async fn clear_removes_captions_from_db() {
     assert_eq!(count, 0, "captions should be removed after clear");
 }
 
+// ── POST /ingest/cache/clear[/{id}] ───────────────────────────────────────────
+
+/// Create fake image caches + a captions.pes blob for one TS stem.
+fn seed_image_cache(cache_dir: &std::path::Path, stem: &str) {
+    for sub in ["thumbs", "full", "preview", "sub"] {
+        let dir = cache_dir.join(stem).join(sub);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("1_00.jpg"), b"img").unwrap();
+    }
+    std::fs::write(cache_dir.join(stem).join("captions.pes"), b"pes").unwrap();
+}
+
+#[tokio::test]
+async fn cache_clear_per_file_removes_images_keeps_pes_and_db() {
+    let app = make_app_seeded().await;
+    let pool = &app.state.pool;
+    let cache_dir = std::path::PathBuf::from(&app.state.config.paths.cache_dir);
+
+    let file_id = insert_ts_file(pool, "/nas/imgc.ts", "imgc.ts", "done").await;
+    insert_caption(pool, file_id, "keep me").await;
+    seed_image_cache(&cache_dir, "imgc");
+
+    let (status, body) = oneshot(
+        app.router,
+        post_form(&format!("/ingest/cache/clear/{file_id}"), ""),
+    )
+    .await;
+    assert_eq!(status, 200, "body: {body}");
+
+    // Images gone, blob and captions intact.
+    assert!(!cache_dir.join("imgc/thumbs").exists());
+    assert!(!cache_dir.join("imgc/full").exists());
+    assert!(cache_dir.join("imgc/captions.pes").exists());
+    assert_eq!(count_captions(pool, file_id).await, 1);
+    assert_eq!(get_status(pool, file_id).await, "done");
+}
+
+#[tokio::test]
+async fn cache_clear_per_file_missing_id_returns_404() {
+    let app = make_app_seeded().await;
+    let (status, _) = oneshot(app.router, post_form("/ingest/cache/clear/9999", "")).await;
+    assert_eq!(status, 404);
+}
+
+#[tokio::test]
+async fn cache_clear_all_removes_all_images_keeps_pes() {
+    let app = make_app_seeded().await;
+    let pool = &app.state.pool;
+    let cache_dir = std::path::PathBuf::from(&app.state.config.paths.cache_dir);
+
+    let a = insert_ts_file(pool, "/nas/bulk_a.ts", "bulk_a.ts", "done").await;
+    insert_caption(pool, a, "a").await;
+    seed_image_cache(&cache_dir, "bulk_a");
+    seed_image_cache(&cache_dir, "bulk_b");
+
+    let (status, body) = oneshot(app.router, post_form("/ingest/cache/clear", "")).await;
+    assert_eq!(status, 200, "body: {body}");
+
+    for stem in ["bulk_a", "bulk_b"] {
+        assert!(!cache_dir.join(stem).join("thumbs").exists());
+        assert!(
+            cache_dir.join(stem).join("captions.pes").exists(),
+            "{stem} blob must survive"
+        );
+    }
+    assert_eq!(count_captions(pool, a).await, 1);
+}
+
 // ── POST /reingest/:id ────────────────────────────────────────────────────────
 
 #[tokio::test]

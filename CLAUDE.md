@@ -24,6 +24,7 @@ src/
 │                    #   Caption { pts_start_ms, pts_end_ms, text }
 ├── media/
 │   ├── mod.rs
+│   ├── cache.rs     # 画像キャッシュ管理 (サイズ集計・容量LRU削除・手動削除、captions.pes対象外)
 │   └── capture.rs   # ffmpeg 単一パスサムネ生成 (stock ffmpeg)
 │                    #   bwdif → select → scale → 字幕PNGオーバーレイ → JPEG (1コマンド)
 │                    #   検索プレビューは時刻直シーク + -frames:v 1 の単フレーム取得
@@ -36,6 +37,7 @@ src/
 │   ├── tags.rs      # POST /caption/{id}/tags, POST /caption/{id}/tags/delete, GET /api/tags
 │   └── ingest.rs    # GET /ingest/status, GET /ingest/files, GET /ingest/file/{id}
 │                    #   POST /ingest/scan, POST /ingest/clear/{id}, POST /reingest/{id}
+│                    #   POST /ingest/cache/clear, POST /ingest/cache/clear/{id}
 └── bin/
     ├── extract.rs    # 診断CLI: TSから字幕/EPGをダンプ
     └── ingest_cli.rs # 本番CLI: スキャン・再取り込み
