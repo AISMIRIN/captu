@@ -95,6 +95,13 @@
               class="text-xs text-gray-500 hover:text-yellow-400 transition-colors"
             >取り込み直し</button>
             <button
+              hx-post="/ingest/cache/clear/{{ f.id }}"
+              hx-confirm="画像キャッシュを削除します（字幕・タグ・選択フレームは残ります）。よいですか？"
+              hx-target="#row-result-{{ f.id }}"
+              hx-swap="innerHTML"
+              class="text-xs text-gray-500 hover:text-orange-400 transition-colors"
+            >画像キャッシュ削除</button>
+            <button
               hx-post="/ingest/clear/{{ f.id }}"
               hx-confirm="字幕情報とキャッシュ画像を削除します。よいですか？"
               hx-target="#row-result-{{ f.id }}"

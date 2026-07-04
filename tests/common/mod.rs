@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use axum::{body::Body, http::Request, Router};
 use captu::{
-    config::{CaptureConfig, Config, IngestConfig, PathsConfig, ServerConfig},
+    config::{CacheConfig, CaptureConfig, Config, IngestConfig, PathsConfig, ServerConfig},
     db::init_db,
     routes::{self, AppState},
 };
@@ -57,12 +57,14 @@ pub async fn make_app() -> (Router, TempDir) {
             host: "127.0.0.1".to_string(),
             port: 8000,
         },
+        cache: CacheConfig::default(),
     });
 
     let state = AppState {
         pool,
         config,
         gen_locks: Arc::new(Mutex::new(HashMap::new())),
+        ingest_guard: captu::scheduler::new_guard(),
     };
 
     let router = routes::build_router(state);
@@ -123,12 +125,14 @@ pub async fn make_app_seeded() -> TestApp {
             host: "127.0.0.1".to_string(),
             port: 8000,
         },
+        cache: CacheConfig::default(),
     });
 
     let state = AppState {
         pool,
         config,
         gen_locks: Arc::new(Mutex::new(HashMap::new())),
+        ingest_guard: captu::scheduler::new_guard(),
     };
 
     let router = routes::build_router(state.clone());

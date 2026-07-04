@@ -32,6 +32,13 @@ require_captions = false
 # filter_exclude = ["**/*CM*.ts", "**/sp_*.ts"]
 # filter_include = []  # empty = accept all
 
+[cache]
+# Max total size (MiB) of the image caches (thumbs/full/preview/sub).
+# After each scan cycle the oldest files (by mtime) are deleted until the
+# total fits. captions.pes blobs are never counted or deleted.
+# 0 = unlimited (cleanup disabled).
+image_cache_max_mib = 0
+
 [server]
 host = "0.0.0.0"
 port = 8000

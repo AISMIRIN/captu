@@ -19,6 +19,7 @@ use sqlx::SqlitePool;
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::config::Config;
+use crate::scheduler::IngestGuard;
 
 /// Newtype wrapper that turns any askama Template into an axum IntoResponse.
 /// Replaces the deprecated askama_axum crate.
@@ -45,6 +46,9 @@ pub struct AppState {
     pub config: Arc<Config>,
     /// Per-caption generation locks: prevents concurrent ffmpeg pipelines for the same caption.
     pub gen_locks: Arc<Mutex<HashMap<i64, Arc<AsyncMutex<()>>>>>,
+    /// Shared with the startup scan and the cron scheduler so that a manual
+    /// scan, a scheduled tick, and the startup scan never overlap.
+    pub ingest_guard: IngestGuard,
 }
 
 impl FromRef<AppState> for SqlitePool {
@@ -71,9 +75,12 @@ pub fn build_router(state: AppState) -> Router {
         .route("/caption/{id}/tags", post(tags::add_tag))
         .route("/caption/{id}/tags/delete", post(tags::delete_tag))
         .route("/ingest/status", get(ingest::status))
+        .route("/ingest/scan", post(ingest::scan))
         .route("/ingest/files", get(ingest::files))
         .route("/ingest/file/{id}", get(ingest::file_detail))
         .route("/ingest/clear/{id}", post(ingest::clear))
+        .route("/ingest/cache/clear", post(ingest::clear_all_image_caches))
+        .route("/ingest/cache/clear/{id}", post(ingest::clear_image_cache))
         .route("/reingest/{id}", post(ingest::reingest))
         .route("/recapture/{id}", post(capture::recapture))
         .with_state(state)
@@ -113,6 +120,22 @@ pub(crate) fn display_title(title: &str, ep: Option<i64>, sub: Option<&str>) -> 
     parts.join(" ")
 }
 
+/// Format a byte count as a human-readable string (B / KiB / MiB / GiB).
+pub(crate) fn fmt_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KiB", "MiB", "GiB"];
+    let mut v = bytes as f64;
+    let mut unit = 0;
+    while v >= 1024.0 && unit < UNITS.len() - 1 {
+        v /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{} B", bytes)
+    } else {
+        format!("{:.1} {}", v, UNITS[unit])
+    }
+}
+
 /// Escape LIKE special characters (%, _, \) so user input is treated literally.
 pub(crate) fn like_escape(s: &str) -> String {
     s.replace('\\', "\\\\")
@@ -122,7 +145,29 @@ pub(crate) fn like_escape(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{display_title, fmt_ms, like_escape};
+    use super::{display_title, fmt_bytes, fmt_ms, like_escape};
+
+    // ── fmt_bytes ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn fmt_bytes_plain_bytes() {
+        assert_eq!(fmt_bytes(0), "0 B");
+        assert_eq!(fmt_bytes(1023), "1023 B");
+    }
+
+    #[test]
+    fn fmt_bytes_kib_mib_gib() {
+        assert_eq!(fmt_bytes(1024), "1.0 KiB");
+        assert_eq!(fmt_bytes(1536), "1.5 KiB");
+        assert_eq!(fmt_bytes(5 * 1024 * 1024), "5.0 MiB");
+        assert_eq!(fmt_bytes(3 * 1024 * 1024 * 1024), "3.0 GiB");
+    }
+
+    #[test]
+    fn fmt_bytes_caps_at_gib() {
+        // Above GiB the unit stays GiB (no TiB tier).
+        assert_eq!(fmt_bytes(2048 * 1024 * 1024 * 1024), "2048.0 GiB");
+    }
 
     // ── fmt_ms ────────────────────────────────────────────────────────────────
 
