@@ -35,7 +35,7 @@ src/
 │   ├── episodes.rs  # GET /api/episodes
 │   ├── tags.rs      # POST /caption/{id}/tags, POST /caption/{id}/tags/delete, GET /api/tags
 │   └── ingest.rs    # GET /ingest/status, GET /ingest/files, GET /ingest/file/{id}
-│                    #   POST /ingest/clear/{id}, POST /reingest/{id}
+│                    #   POST /ingest/scan, POST /ingest/clear/{id}, POST /reingest/{id}
 └── bin/
     ├── extract.rs    # 診断CLI: TSから字幕/EPGをダンプ
     └── ingest_cli.rs # 本番CLI: スキャン・再取り込み

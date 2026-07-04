@@ -19,6 +19,7 @@ use sqlx::SqlitePool;
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::config::Config;
+use crate::scheduler::IngestGuard;
 
 /// Newtype wrapper that turns any askama Template into an axum IntoResponse.
 /// Replaces the deprecated askama_axum crate.
@@ -45,6 +46,9 @@ pub struct AppState {
     pub config: Arc<Config>,
     /// Per-caption generation locks: prevents concurrent ffmpeg pipelines for the same caption.
     pub gen_locks: Arc<Mutex<HashMap<i64, Arc<AsyncMutex<()>>>>>,
+    /// Shared with the startup scan and the cron scheduler so that a manual
+    /// scan, a scheduled tick, and the startup scan never overlap.
+    pub ingest_guard: IngestGuard,
 }
 
 impl FromRef<AppState> for SqlitePool {
@@ -71,6 +75,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/caption/{id}/tags", post(tags::add_tag))
         .route("/caption/{id}/tags/delete", post(tags::delete_tag))
         .route("/ingest/status", get(ingest::status))
+        .route("/ingest/scan", post(ingest::scan))
         .route("/ingest/files", get(ingest::files))
         .route("/ingest/file/{id}", get(ingest::file_detail))
         .route("/ingest/clear/{id}", post(ingest::clear))

@@ -22,6 +22,25 @@
     hx-swap="outerHTML"
   >
 
+    {# Manual scan trigger. Lives inside #status-body so the 4 s auto-refresh
+       keeps the button/indicator in sync with the ingest guard state. #}
+    <div class="flex items-center gap-3 mb-6">
+      {% if scanning %}
+      <button disabled
+              class="px-3 py-1.5 rounded text-sm bg-gray-700 text-gray-500 cursor-not-allowed">
+        スキャン実行中…
+      </button>
+      {% else %}
+      <button hx-post="/ingest/scan"
+              hx-target="#scan-result"
+              hx-swap="innerHTML"
+              class="px-3 py-1.5 rounded text-sm bg-blue-600 hover:bg-blue-500 text-white transition-colors">
+        スキャン実行
+      </button>
+      {% endif %}
+      <span id="scan-result" class="text-sm text-gray-400"></span>
+    </div>
+
     {# Progress bar #}
     <div class="mb-6">
       <div class="flex justify-between text-sm text-gray-400 mb-2">

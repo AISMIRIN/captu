@@ -51,7 +51,7 @@ captu/
 │   │   ├── episodes.rs            # GET /api/episodes
 │   │   ├── tags.rs                # POST /caption/{id}/tags , POST /caption/{id}/tags/delete , GET /api/tags
 │   │   └── ingest.rs              # GET /ingest/status , GET /ingest/files , GET /ingest/file/{id}
-│   │                              #   POST /ingest/clear/{id} , POST /reingest/{id}
+│   │                              #   POST /ingest/scan , POST /ingest/clear/{id} , POST /reingest/{id}
 │   └── bin/
 │       ├── extract.rs             # 診断CLI: TSから字幕/EPGをダンプ
 │       └── ingest_cli.rs          # 本番CLI: スキャン・再取り込み
@@ -261,9 +261,11 @@ pending → ingesting → done
 1. **起動時スキャン** (`run_on_startup = true`)
 2. **定期スキャン**: `schedule_cron`（6フィールドcron、秒付き）で周期実行。
    `scheduler::start()` が `tokio-cron-scheduler` ベースのジョブを起動。
-   起動時スキャンと共有の `IngestGuard`（`Arc<tokio::sync::Mutex<()>>`）で排他制御し、
+   起動時スキャン・手動スキャンと共有の `IngestGuard`（`Arc<tokio::sync::Mutex<()>>`）で排他制御し、
    前のスキャンが終わっていない tick は `try_lock` で自動スキップ。
    `schedule_cron = ""` で定期スキャンを無効化できる。
+3. **手動スキャン**: `/ingest/status` の「スキャン実行」ボタン（`POST /ingest/scan`）。
+   同じ `IngestGuard` を共有し、実行中なら開始せずメッセージのみ返す。
 
 
 
@@ -449,6 +451,13 @@ q・フィルタ・filter が全て未指定の場合は空結果を返す。
 ### GET /ingest/status
 取り込み状況（status 別カウント・最近のエラー・captions.pes 再生成中の件数）を HTML で返す。
 `regenerating` / `regenerating_files` フィールドで再生成中のファイル数と名前を含む。
+`scanning` フィールドでスキャン（起動時・定期・手動）の実行中かどうかを示し、
+実行中はスキャンボタンを無効化して「スキャン実行中…」を表示する。
+
+### POST /ingest/scan
+スキャン + 取り込みサイクル（`scan_and_ingest`）をバックグラウンドで開始する。
+起動時スキャン・定期スキャンと共有する ingest guard を `try_lock_owned` で取得し、
+既にスキャンが実行中の場合は開始せず「スキャン実行中です」を返す（いずれも 200）。
 
 ### GET /ingest/files
 全 TS ファイルの一覧（status・pes_regen・エラー情報）を HTML で返す。

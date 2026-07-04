@@ -63,6 +63,7 @@ pub async fn make_app() -> (Router, TempDir) {
         pool,
         config,
         gen_locks: Arc::new(Mutex::new(HashMap::new())),
+        ingest_guard: captu::scheduler::new_guard(),
     };
 
     let router = routes::build_router(state);
@@ -129,6 +130,7 @@ pub async fn make_app_seeded() -> TestApp {
         pool,
         config,
         gen_locks: Arc::new(Mutex::new(HashMap::new())),
+        ingest_guard: captu::scheduler::new_guard(),
     };
 
     let router = routes::build_router(state.clone());

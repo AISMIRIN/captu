@@ -84,6 +84,8 @@ pub struct IngestStatusTemplate {
     pub regenerating: i64,
     /// Filenames in the regen queue, active entries (pes_regen=2) first.
     pub regenerating_files: Vec<String>,
+    /// Whether a scan (startup / scheduled / manual) currently holds the ingest guard.
+    pub scanning: bool,
 }
 
 pub async fn status(
@@ -163,6 +165,11 @@ pub async fn status(
     let regenerating_files: Vec<String> = regen_rows.into_iter().map(|r| r.filename).collect();
     let regenerating = regenerating_files.len() as i64;
 
+    // Probe the ingest guard to display scan-in-progress state.
+    // The probe momentarily acquires the lock; a scheduled tick firing in that
+    // nanosecond window would skip — a benign, display-only race.
+    let scanning = state.ingest_guard.try_lock().is_err();
+
     Ok(HtmlTemplate(IngestStatusTemplate {
         pending,
         ingesting,
@@ -173,7 +180,35 @@ pub async fn status(
         recent_errors,
         regenerating,
         regenerating_files,
+        scanning,
     }))
+}
+
+/// POST /ingest/scan — start a full scan + ingest cycle in the background.
+///
+/// The ingest guard is claimed with `try_lock_owned` and moved into the
+/// spawned task, so the startup scan and scheduled cron ticks (which share
+/// the same guard) cannot overlap a manual scan. If the guard is already
+/// held, respond with a "busy" message instead of queueing another scan.
+/// htmx does not swap 4xx responses, so both outcomes return 200 with a
+/// user-facing message, matching clear/reingest below.
+pub async fn scan(State(state): State<AppState>) -> Response {
+    match state.ingest_guard.clone().try_lock_owned() {
+        Ok(lock) => {
+            let cfg = state.config.clone();
+            let pool = state.pool.clone();
+            tokio::spawn(async move {
+                // Hold the guard for the whole scan.
+                let _lock = lock;
+                tracing::info!("manual ingest: beginning scan");
+                if let Err(e) = ingest::scan_and_ingest(cfg, pool).await {
+                    tracing::error!("manual ingest failed: {:#}", e);
+                }
+            });
+            (StatusCode::OK, "スキャンを開始しました").into_response()
+        }
+        Err(_) => (StatusCode::OK, "スキャン実行中です").into_response(),
+    }
 }
 
 /// GET /ingest/files — searchable, paginated list of all TS files.

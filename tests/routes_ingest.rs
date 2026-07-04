@@ -122,6 +122,51 @@ async fn status_shows_regenerating_files() {
     assert_eq!(status, 200);
 }
 
+// ── POST /ingest/scan ─────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn scan_starts_and_reports_started() {
+    // nas_mount is an empty tempdir, so the background scan finds nothing
+    // and finishes immediately without side effects.
+    let app = make_app_seeded().await;
+    let (status, body) = oneshot(app.router, post_form("/ingest/scan", "")).await;
+    assert_eq!(status, 200);
+    assert!(
+        body.contains("スキャンを開始しました"),
+        "should report scan started, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn scan_while_guard_held_reports_busy() {
+    let app = make_app_seeded().await;
+
+    // Simulate a scan in flight by holding the shared guard.
+    let _held = app.state.ingest_guard.try_lock().expect("guard free");
+
+    let (status, body) = oneshot(app.router, post_form("/ingest/scan", "")).await;
+    assert_eq!(status, 200);
+    assert!(
+        body.contains("スキャン実行中です"),
+        "should report scan busy, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn status_shows_scanning_while_guard_held() {
+    let app = make_app_seeded().await;
+
+    let _held = app.state.ingest_guard.try_lock().expect("guard free");
+
+    let (status, body) = oneshot(app.router, get("/ingest/status")).await;
+    assert_eq!(status, 200);
+    assert!(
+        body.contains("スキャン実行中"),
+        "status page should show scanning indicator, got: {}",
+        &body[..body.len().min(500)]
+    );
+}
+
 // ── GET /ingest/files ─────────────────────────────────────────────────────────
 
 #[tokio::test]
