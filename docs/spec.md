@@ -13,7 +13,7 @@
 ## 動作環境
 
 - **言語**: Rust (edition 2021)
-- **実行環境**: Docker（`compose.yaml` 参照）
+- **実行環境**: Docker（`compose.yaml` 参照。CIビルド済みイメージ `ghcr.io/aismirin/captu` を pull。ローカルビルドは `compose.build.yaml` を重ねる）
 - **TSファイル保管**: NFS等でマウントしたNAS。パスは `config.toml` で指定
 - **アクセス**: LAN・VPN等、任意の手段でブラウザからアクセス
 
@@ -94,7 +94,8 @@ captu/
 │
 ├── docs/spec.md                   # 本ドキュメント
 ├── CLAUDE.md                      # 開発ガイド
-└── compose.yaml
+├── compose.yaml                   # 本番: GHCRイメージをpullして起動
+└── compose.build.yaml             # ローカルソースビルド用オーバーレイ
 ```
 
 ---
@@ -106,7 +107,7 @@ captu/
 git submodule update --init
 
 # 依存ツール: cmake, clang, libclang (bindgen用)
-# ffmpegはソースビルド (--enable-libaribcaption) → Dockerfile.ffmpeg を参照
+# ffmpegはstock版 (apt)。ARIB字幕のデコード/描画はRustバイナリ内のaribcaption-sysが担う
 # 開発環境: scripts/dev.sh 経由でDockerコンテナ内でビルドする
 scripts/dev.sh build
 ```
@@ -115,7 +116,7 @@ scripts/dev.sh build
 
 - Web: axum 0.8, tokio, tower-http
 - テンプレート: askama 0.16 (コンパイル時検証)
-- DB: sqlx 0.8 (sqlite + chrono features)
+- DB: sqlx 0.9 (sqlite + chrono features)
 - ARIB字幕: `aribcaption` (ワークスペースメンバー, libaribcaptionのsafe Rustラッパー; raw FFI は `aribcaption-sys`)
 - スケジューラ: tokio-cron-scheduler (6フィールドcron、秒単位指定)
 - その他: serde, toml, glob, png 0.18, postcard, encoding_rs, unicode-normalization, tracing

@@ -52,7 +52,8 @@ captu/
 │
 ├── docs/spec.md       # 設計仕様
 ├── CLAUDE.md          # 開発ガイド (モジュール構成・技術規約)
-└── compose.yaml
+├── compose.yaml       # 本番: GHCRイメージをpullして起動
+└── compose.build.yaml # ローカルソースビルド用オーバーレイ
 ```
 
 ## ビルド要件
@@ -77,10 +78,13 @@ scripts/dev.sh run --bin extract -- /mnt/nas/video/sample.ts
 # NASマウントを使う場合
 CAPTU_NAS_HOST=/mnt/your/recordings scripts/dev.sh run --bin ingest_cli -- --scan /mnt/nas/video
 
-# 本番 (runtime ターゲット — stock ffmpeg + aribcaption-sys static link)
+# 本番 — CIビルド済みイメージ (ghcr.io/aismirin/captu) を pull して起動
 cp .env.example .env                # CAPTU_NAS_HOST / CAPTU_UID / CAPTU_GID / CAPTU_PORT を設定
 cp config.toml.example config.toml  # 録画ディレクトリ等を設定
-docker compose up --build -d
+docker compose pull && docker compose up -d
+
+# ローカルソースからビルドして起動する場合 (runtime ターゲット)
+docker compose -f compose.yaml -f compose.build.yaml up --build -d
 ```
 
 ### config.toml
@@ -98,7 +102,8 @@ docker compose up --build -d
 | `cache.image_cache_max_mib` | 画像キャッシュ合計上限 MiB (0=無制限。超過分はスキャン後に古い順で自動削除) |
 
 環境変数 `CAPTU_NAS_MOUNT / CAPTU_TS_GLOB / CAPTU_DB_PATH / CAPTU_CACHE_DIR` でコンテナ内の設定値を上書き可能。
-`CAPTU_NAS_HOST` / `CAPTU_UID` / `CAPTU_GID` / `CAPTU_PORT`（`.env` で設定）は compose.yaml がホスト側マウント・UID・ポートを指定する際に使う別変数。
+`CAPTU_NAS_HOST` / `CAPTU_UID` / `CAPTU_GID` / `CAPTU_PORT` / `CAPTU_TAG`（`.env` で設定）は compose.yaml がホスト側マウント・UID・ポート・イメージタグを指定する際に使う別変数。
+`TZ`（デフォルト `Asia/Tokyo`）と `RUST_LOG`（デフォルト `captu=info,info`）も `.env` で上書きできる。
 
 ## CLIの使い方
 
