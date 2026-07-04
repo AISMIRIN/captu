@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use captu::{
-    config::{CaptureConfig, Config, IngestConfig, PathsConfig, ServerConfig},
+    config::{CacheConfig, CaptureConfig, Config, IngestConfig, PathsConfig, ServerConfig},
     db::init_db,
     ingest::{
         clear_subtitles, delete_ts_file, enqueue_missing_pes, reconcile_deleted, reset_program,
@@ -63,6 +63,7 @@ async fn make_env() -> TestEnv {
             host: "127.0.0.1".to_string(),
             port: 8000,
         },
+        cache: CacheConfig::default(),
     });
 
     TestEnv {

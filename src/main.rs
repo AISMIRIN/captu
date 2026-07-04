@@ -31,8 +31,9 @@ async fn main() -> anyhow::Result<()> {
     // Pool size: concurrency workers + headroom for web handlers.
     let pool = db::init_db(&config.paths.db_path, config.ingest.concurrency + 5).await?;
 
-    // Shared so a scheduled tick won't overlap the startup scan or another tick.
-    let ingest_guard: scheduler::IngestGuard = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+    // Shared so a scheduled tick, the startup scan, and a manual scan
+    // (POST /ingest/scan) never overlap each other.
+    let ingest_guard: scheduler::IngestGuard = scheduler::new_guard();
 
     if config.ingest.run_on_startup {
         let cfg = config.clone();
@@ -48,12 +49,13 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Keep the scheduler alive for the whole process lifetime (drop = stop).
-    let _scheduler = scheduler::start(config.clone(), pool.clone(), ingest_guard).await?;
+    let _scheduler = scheduler::start(config.clone(), pool.clone(), ingest_guard.clone()).await?;
 
     let state = routes::AppState {
         pool,
         config,
         gen_locks: Arc::new(Mutex::new(HashMap::new())),
+        ingest_guard,
     };
 
     let app = routes::build_router(state).nest_service("/static", ServeDir::new("ui/static"));

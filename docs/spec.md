@@ -41,6 +41,7 @@ captu/
 │   │   └── subtitle.rs            # libaribcaption FFI経由の字幕抽出・on-demand PNG描画
 │   ├── media/
 │   │   ├── mod.rs
+│   │   ├── cache.rs               # 画像キャッシュ管理 (サイズ集計 / 容量LRU削除 / 手動削除)
 │   │   └── capture.rs             # ffmpeg 単一パスサムネ生成 (コンタクトシート / フル解像度 / 直シークプレビュー)
 │   ├── routes/
 │   │   ├── mod.rs                 # AppState, build_router(), display_title(), fmt_ms(), like_escape()
@@ -51,7 +52,8 @@ captu/
 │   │   ├── episodes.rs            # GET /api/episodes
 │   │   ├── tags.rs                # POST /caption/{id}/tags , POST /caption/{id}/tags/delete , GET /api/tags
 │   │   └── ingest.rs              # GET /ingest/status , GET /ingest/files , GET /ingest/file/{id}
-│   │                              #   POST /ingest/clear/{id} , POST /reingest/{id}
+│   │                              #   POST /ingest/scan , POST /ingest/clear/{id} , POST /reingest/{id}
+│   │                              #   POST /ingest/cache/clear , POST /ingest/cache/clear/{id}
 │   └── bin/
 │       ├── extract.rs             # 診断CLI: TSから字幕/EPGをダンプ
 │       └── ingest_cli.rs          # 本番CLI: スキャン・再取り込み
@@ -163,6 +165,12 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
 }
+
+pub struct CacheConfig {
+    pub image_cache_max_mib: u64,     // 画像キャッシュ (thumbs/full/preview/sub) の合計上限 MiB。
+                                      // 超過分はスキャン後に mtime の古い順 (LRU) で削除。
+                                      // 0 = 無制限 (自動削除無効)。captions.pes は対象外
+}
 ```
 
 ---
@@ -262,9 +270,11 @@ pending → ingesting → done
 1. **起動時スキャン** (`run_on_startup = true`)
 2. **定期スキャン**: `schedule_cron`（6フィールドcron、秒付き）で周期実行。
    `scheduler::start()` が `tokio-cron-scheduler` ベースのジョブを起動。
-   起動時スキャンと共有の `IngestGuard`（`Arc<tokio::sync::Mutex<()>>`）で排他制御し、
+   起動時スキャン・手動スキャンと共有の `IngestGuard`（`Arc<tokio::sync::Mutex<()>>`）で排他制御し、
    前のスキャンが終わっていない tick は `try_lock` で自動スキップ。
    `schedule_cron = ""` で定期スキャンを無効化できる。
+3. **手動スキャン**: `/ingest/status` の「スキャン実行」ボタン（`POST /ingest/scan`）。
+   同じ `IngestGuard` を共有し、実行中なら開始せずメッセージのみ返す。
 
 
 
@@ -283,6 +293,10 @@ Phase 2: enqueue_missing_pes() + run_pes_regen_workers()  [欠損ブロブがあ
 
 Phase 3: run_workers()
   - pending 行を ingest_one() で並列処理 (concurrency 設定)
+
+Phase 4: enforce_image_cache_limit()  [cache.image_cache_max_mib > 0 の場合のみ]
+  - 画像キャッシュ (thumbs/full/preview/sub) の合計サイズが上限を超えていれば
+    mtime の古い順 (LRU) に削除。captions.pes は対象外
 ```
 
 ### 1ファイルの取り込み処理
@@ -450,6 +464,14 @@ q・フィルタ・filter が全て未指定の場合は空結果を返す。
 ### GET /ingest/status
 取り込み状況（status 別カウント・最近のエラー・captions.pes 再生成中の件数）を HTML で返す。
 `regenerating` / `regenerating_files` フィールドで再生成中のファイル数と名前を含む。
+`scanning` フィールドでスキャン（起動時・定期・手動）の実行中かどうかを示し、
+実行中はスキャンボタンを無効化して「スキャン実行中…」を表示する。
+画像キャッシュの合計サイズ・ファイル数も表示し、全削除ボタンを備える。
+
+### POST /ingest/scan
+スキャン + 取り込みサイクル（`scan_and_ingest`）をバックグラウンドで開始する。
+起動時スキャン・定期スキャンと共有する ingest guard を `try_lock_owned` で取得し、
+既にスキャンが実行中の場合は開始せず「スキャン実行中です」を返す（いずれも 200）。
 
 ### GET /ingest/files
 全 TS ファイルの一覧（status・pes_regen・エラー情報）を HTML で返す。
@@ -460,6 +482,13 @@ q・フィルタ・filter が全て未指定の場合は空結果を返す。
 ### POST /ingest/clear/{id}
 指定 TS ファイルの字幕・タグを削除し、関連キャッシュ（captions.pes / PNG / JPEG）を消去する。
 status は変更しない（`done` のまま）。完全な再取り込みを行うには `/reingest/{id}` を使う。
+
+### POST /ingest/cache/clear/{id}
+指定 TS ファイルの画像キャッシュ（thumbs / full / preview / sub）のみ削除する。
+字幕・タグ・選択フレーム・captions.pes は残り、画像は次回アクセス時に再生成される。
+
+### POST /ingest/cache/clear
+全 TS ファイルの画像キャッシュを削除する（対象・保持は上記と同じ）。解放したサイズをメッセージで返す。
 
 ### POST /caption/{id}/tags
 タグ追加（冪等）。`Form { tag: String }` を受け取り、当該 caption の最新タグリストを HTML フラグメントで返す。
