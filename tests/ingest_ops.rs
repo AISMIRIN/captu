@@ -342,19 +342,60 @@ async fn enqueue_missing_pes_skips_done_file_with_no_captions() {
     let pool = &env.pool;
 
     std::fs::create_dir_all(&env.config.paths.cache_dir).unwrap();
+
+    // Another file whose caption row has captions.id == captions.ts_file_id.
+    // An unqualified `id` in the EXISTS subquery resolves to captions.id, so
+    // this row would make the guard true for *every* file (regression for the
+    // column-shadowing bug). Its blob is present so it is never queued itself.
+    let other_path = create_ts_file(&env, "other.ts");
+    let other_id: i64 = sqlx::query(
+        "INSERT INTO ts_files (path, filename, status) VALUES (?, 'other.ts', 'done') RETURNING id",
+    )
+    .bind(other_path.to_string_lossy().as_ref())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+    .get(0);
+
+    sqlx::query(
+        "INSERT INTO captions (id, ts_file_id, pts_start, pts_end, text) VALUES (?, ?, 0, 500, 'txt')",
+    )
+    .bind(other_id)
+    .bind(other_id)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let blob_dir = std::path::Path::new(&env.config.paths.cache_dir).join("other");
+    std::fs::create_dir_all(&blob_dir).unwrap();
+    std::fs::File::create(blob_dir.join("captions.pes")).unwrap();
+
     let ts_path = create_ts_file(&env, "no_caps.ts");
 
-    sqlx::query("INSERT INTO ts_files (path, filename, status) VALUES (?, 'no_caps.ts', 'done')")
-        .bind(ts_path.to_string_lossy().as_ref())
-        .execute(pool)
-        .await
-        .unwrap();
+    let no_caps_id: i64 = sqlx::query(
+        "INSERT INTO ts_files (path, filename, status) VALUES (?, 'no_caps.ts', 'done') RETURNING id",
+    )
+    .bind(ts_path.to_string_lossy().as_ref())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+    .get(0);
 
     // No captions → file is excluded by the EXISTS check.
     let count = enqueue_missing_pes(&env.config, pool)
         .await
         .expect("enqueue");
     assert_eq!(count, 0, "file without captions should not be queued");
+
+    let pes_regen: i64 = sqlx::query_scalar("SELECT pes_regen FROM ts_files WHERE id = ?")
+        .bind(no_caps_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        pes_regen, 0,
+        "pes_regen should stay 0 for caption-less file"
+    );
 }
 
 // ── reset_program ─────────────────────────────────────────────────────────────

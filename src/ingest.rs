@@ -487,7 +487,7 @@ pub async fn enqueue_missing_pes(config: &Config, pool: &SqlitePool) -> Result<u
            FROM ts_files
            WHERE status = 'done'
              AND pes_regen = 0
-             AND EXISTS (SELECT 1 FROM captions c WHERE c.ts_file_id = id)"#,
+             AND EXISTS (SELECT 1 FROM captions c WHERE c.ts_file_id = ts_files.id)"#,
     )
     .fetch_all(pool)
     .await?;
