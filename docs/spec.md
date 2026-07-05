@@ -288,7 +288,8 @@ Phase 1: scan_and_enqueue()
   - 未登録ファイルを pending で INSERT OR IGNORE
 
 Phase 2: enqueue_missing_pes() + run_pes_regen_workers()  [欠損ブロブがある場合のみ]
-  - cache/{stem}/captions.pes が存在しない done 行を検出し pes_regen=1 (queued) に更新
+  - 字幕を1件以上持ち cache/{stem}/captions.pes が存在しない done 行を検出し pes_regen=1 (queued) に更新
+    (字幕0件のファイルは元々ブロブを持たないため対象外)
   - ワーカーが TS を読み直して captions.pes を再生成 (DB の status は変更しない)
 
 Phase 3: run_workers()
