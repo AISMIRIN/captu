@@ -12,7 +12,7 @@ jobs:
       # protection), which skips the docker publish and hides a red main.
       - name: Generate App token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.DEPENDABOT_SYNC_APP_ID }}
           private-key: ${{ secrets.DEPENDABOT_SYNC_APP_PRIVATE_KEY }}
