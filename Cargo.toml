@@ -41,7 +41,7 @@ tokio-cron-scheduler = "0.15"
 
 # LLM — TODO(Phase7): wire up AI search via reqwest + Gemini/Anthropic
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-base64 = "0.22"
+base64 = "0.23"
 # async-trait removed: unused in current codebase (re-add when Phase7 LLM trait is wired up)
 
 # String normalization
