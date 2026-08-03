@@ -12,7 +12,10 @@ permissions:
 
 jobs:
   auto-merge:
-    if: github.actor == 'dependabot[bot]'
+    # Gate on the PR author, not github.actor: the actor is whoever triggered
+    # the event, and the synchronize events on these PRs come from the App
+    # token used by ci.yml's update-dependabot-prs job, not from Dependabot.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       # Use an App token instead of GITHUB_TOKEN: merges performed via
