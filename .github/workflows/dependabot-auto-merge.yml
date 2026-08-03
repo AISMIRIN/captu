@@ -1,6 +1,14 @@
 name: dependabot-auto-merge
 
-on: pull_request
+# pull_request_target, not pull_request: workflow runs triggered by Dependabot
+# read the Dependabot secret store instead of the Actions one, so the App
+# credentials below resolve to empty strings under pull_request. This job never
+# checks out the PR head, it only calls the GitHub API, so running it in the
+# base-branch context carries no untrusted-code risk.
+on: pull_request_target
+
+permissions:
+  contents: read
 
 jobs:
   auto-merge:
@@ -12,7 +20,7 @@ jobs:
       # protection), which skips the docker publish and hides a red main.
       - name: Generate App token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.DEPENDABOT_SYNC_APP_ID }}
           private-key: ${{ secrets.DEPENDABOT_SYNC_APP_PRIVATE_KEY }}
