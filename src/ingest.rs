@@ -304,7 +304,21 @@ async fn do_ingest(path: &Path, config: &Config, pool: &SqlitePool, ts_file_id: 
 
     // Insert all captions in a single transaction.
     let mut tx = pool.begin().await?;
+    let mut inserted = 0usize;
     for cap in &captions {
+        // Belt and braces: ts::subtitle already filters these out, but this is
+        // the only writer of captions.pts_start and must never persist a value
+        // that the UI or the capture pipeline cannot handle.
+        if !crate::ts::pts::is_plausible_pts(cap.pts_start_ms, cap.pts_end_ms) {
+            tracing::warn!(
+                "{}: skipping caption with implausible pts {}..{}",
+                path.display(),
+                cap.pts_start_ms,
+                cap.pts_end_ms,
+            );
+            continue;
+        }
+        inserted += 1;
         sqlx::query!(
             "INSERT INTO captions (ts_file_id, pts_start, pts_end, text) VALUES (?, ?, ?, ?)",
             ts_file_id,
@@ -320,7 +334,7 @@ async fn do_ingest(path: &Path, config: &Config, pool: &SqlitePool, ts_file_id: 
     tracing::info!(
         "ingest done: {} | {} captions | program_id={:?}",
         path.display(),
-        captions.len(),
+        inserted,
         program_id,
     );
 

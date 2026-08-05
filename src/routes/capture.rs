@@ -266,6 +266,19 @@ async fn lookup_caption(state: &AppState, id: i64) -> Result<(PathBuf, i64, i64)
     })?
     .ok_or(StatusCode::NOT_FOUND)?;
 
+    // Rows written before the 33-bit unwrap fix can still hold a corrupt
+    // timeline.  Refuse them here so no doomed ffmpeg process is spawned against
+    // the NAS; the row is recoverable only by re-ingesting the file.
+    if !crate::ts::pts::is_plausible_pts(row.pts_start, row.pts_end) {
+        tracing::warn!(
+            "caption {} has implausible pts {}..{}; refusing capture (re-ingest the file)",
+            id,
+            row.pts_start,
+            row.pts_end,
+        );
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
     Ok((PathBuf::from(row.path), row.pts_start, row.pts_end))
 }
 
