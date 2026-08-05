@@ -423,6 +423,99 @@ fn demux_caption_pes_skips_packet_without_pts() {
     );
 }
 
+// ── 33-bit PTS rollover ───────────────────────────────────────────────────────
+//
+// MPEG-2 PTS is a 33-bit 90 kHz counter that wraps every ~26 h 30 min.  A
+// recording that crosses the wrap point must keep producing sane timestamps.
+
+/// 2^33, the PTS modulus in 90 kHz ticks.
+const PTS_WRAP: u64 = 1 << 33;
+/// 24 h in ms — anything at or beyond this is not a real caption timestamp.
+const MAX_PLAUSIBLE_PTS_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// Build a caption TS file from a list of PTS values, one PES per value.
+/// Each PES is flushed by the next PUSI, and the last one by the end-of-file
+/// flush, so N values yield N units.
+fn demux_pts_sequence(caption_pid: u16, pts_values: &[u64]) -> Vec<i64> {
+    let packets: Vec<[u8; 188]> = pts_values
+        .iter()
+        .enumerate()
+        .map(|(i, &pts)| {
+            let payload = [0x80u8, i as u8];
+            let pes = pes_header_with_pts(pts, &payload);
+            pes_packet(caption_pid, true, &pes)
+        })
+        .collect();
+    let (_f, path) = write_ts_file(&packets);
+    demux_caption_pes(&path, caption_pid)
+        .iter()
+        .map(|c| c.pts_ms)
+        .collect()
+}
+
+#[test]
+fn demux_caption_pes_unwraps_33bit_rollover() {
+    let pts = [
+        PTS_WRAP - 180_000, // 2 s before the wrap → epoch
+        PTS_WRAP - 90_000,  // 1 s before the wrap
+        0,                  // the counter has wrapped
+        90_000,             // 1 s after the wrap
+    ];
+    let out = demux_pts_sequence(0x0200, &pts);
+
+    assert_eq!(
+        out,
+        vec![0, 1000, 2000, 3000],
+        "rollover must unwrap smoothly"
+    );
+    assert!(out.iter().all(|&ms| ms < MAX_PLAUSIBLE_PTS_MS));
+}
+
+#[test]
+fn demux_caption_pes_epoch_just_before_wrap_regression() {
+    // Regression for the reported failure: a file whose first caption PTS sits
+    // 51_162_976 ticks (568.5 s) before the 33-bit rollover rendered every later
+    // caption as "56934395262:52:22", because `pts.wrapping_sub(epoch)` wrapped
+    // at 2^64 instead of 2^33.
+    let epoch = PTS_WRAP - 51_162_976; // 8_538_771_616
+    let out = demux_pts_sequence(0x0200, &[epoch, 0, 90_000]);
+
+    assert_eq!(
+        out,
+        vec![0, 568_477, 569_477],
+        "post-wrap captions must stay on the timeline"
+    );
+    assert!(
+        out[1] < MAX_PLAUSIBLE_PTS_MS,
+        "regression: post-wrap PTS exploded to {}",
+        out[1]
+    );
+}
+
+#[test]
+fn demux_caption_pes_backward_jitter_stays_bounded() {
+    // A small backward step (multiplexer jitter) must not be read as a wrap.
+    let out = demux_pts_sequence(0x0200, &[90_000, 45_000, 180_000, 270_000]);
+
+    assert_eq!(out, vec![0, -500, 1000, 2000]);
+    assert!(out.iter().all(|&ms| ms.abs() < MAX_PLAUSIBLE_PTS_MS));
+}
+
+#[test]
+fn demux_caption_pes_large_discontinuity_stays_bounded() {
+    // An arbitrary splice (PTS reset) is absorbed as a nominal 1 s advance, so
+    // captions after it survive instead of becoming astronomical.
+    let out = demux_pts_sequence(
+        0x0200,
+        &[90_000, 90_000 * 20_000, 90_000 * 20_001, 90_000 * 20_002],
+    );
+
+    assert_eq!(out, vec![0, 1000, 2000, 3000]);
+    assert!(out
+        .iter()
+        .all(|&ms| (0..MAX_PLAUSIBLE_PTS_MS).contains(&ms)));
+}
+
 #[test]
 fn demux_caption_pes_adaptation_field_only_skipped() {
     // A TS packet with adaptation_field_control=10 (adaptation only, no payload)

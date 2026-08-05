@@ -208,6 +208,8 @@ CREATE TABLE IF NOT EXISTS ts_files (
 CREATE TABLE IF NOT EXISTS captions (
     id         INTEGER PRIMARY KEY,
     ts_file_id INTEGER NOT NULL REFERENCES ts_files(id),
+    -- 基準は「そのファイルで最初に観測した字幕PES」。33bitラップは
+    -- ts::pts::PtsNormalizer で巻き戻し済みなので単調増加する。
     pts_start  INTEGER NOT NULL,   -- 表示開始 (ms)
     pts_end    INTEGER NOT NULL,   -- 表示終了 (ms)
     text       TEXT NOT NULL
