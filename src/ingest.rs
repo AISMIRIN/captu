@@ -251,7 +251,8 @@ async fn do_ingest(path: &Path, config: &Config, pool: &SqlitePool, ts_file_id: 
         let p = path_buf.clone();
         let c = cache_dir.clone();
         let pid = psi.caption_pid;
-        tokio::task::spawn_blocking(move || subtitle::extract_captions(&p, &c, pid))
+        let pcr = psi.pcr_pid;
+        tokio::task::spawn_blocking(move || subtitle::extract_captions(&p, &c, pid, pcr))
     };
     let (epg_res, cap_res) = tokio::join!(epg_task, cap_task);
     let epg = epg_res??;

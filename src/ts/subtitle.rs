@@ -95,10 +95,11 @@ pub(crate) fn encode_png(rgba: &[u8], w: u32, h: u32) -> Result<Vec<u8>> {
 
 /// Extract all ARIB caption events from a TS file.
 ///
-/// `caption_pid` must be the elementary PID returned by `pes::scan_psi`
-/// (or `None` when the TS has no caption stream).  Passing it in avoids
-/// re-reading the PAT/PMT — callers should run `scan_psi` once and share
-/// the result between `extract_epg` and `extract_captions`.
+/// `caption_pid` and `pcr_pid` must come from the same `pes::scan_psi` result
+/// (`caption_pid` is `None` when the TS has no caption stream).  Passing them in
+/// avoids re-reading the PAT/PMT — callers should run `scan_psi` once and share
+/// the result between `extract_epg` and `extract_captions`.  `pcr_pid` anchors
+/// the returned timestamps to the start of the file.
 ///
 /// Saves the raw PES packet list to `cache/{stem}/captions.pes` for later
 /// on-demand rendering.  Returns caption text and timestamps for DB insertion
@@ -110,6 +111,7 @@ pub fn extract_captions(
     ts_path: &Path,
     cache_dir: &Path,
     caption_pid: Option<u16>,
+    pcr_pid: Option<u16>,
 ) -> Result<Vec<Caption>> {
     let stem = ts_path
         .file_stem()
@@ -124,7 +126,7 @@ pub fn extract_captions(
         }
     };
 
-    let pes_list = pes::demux_caption_pes(ts_path, caption_pid);
+    let pes_list = pes::demux_caption_pes(ts_path, caption_pid, pcr_pid);
     if pes_list.is_empty() {
         return Ok(vec![]);
     }
@@ -247,7 +249,7 @@ pub fn regenerate_caption_pes(ts_path: &Path, cache_dir: &Path) -> Result<bool> 
         None => return Ok(false),
     };
 
-    let pes_list = pes::demux_caption_pes(ts_path, caption_pid);
+    let pes_list = pes::demux_caption_pes(ts_path, caption_pid, psi.pcr_pid);
     if pes_list.is_empty() {
         return Ok(false);
     }

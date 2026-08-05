@@ -77,6 +77,19 @@ impl PtsNormalizer {
         Self::default()
     }
 
+    /// Seed the epoch with a value that is not itself emitted, so the first
+    /// pushed sample is already offset from it.
+    ///
+    /// Used to anchor caption PTS to the first PCR of the file, which places
+    /// t = 0 at the start of the recording rather than at the first caption.
+    pub fn with_epoch(raw_epoch_90k: u64) -> Self {
+        Self {
+            prev_raw: Some(raw_epoch_90k & PTS_MASK),
+            ticks: 0,
+            discontinuities: 0,
+        }
+    }
+
     /// Feed the next raw 33-bit PTS, in stream order.
     pub fn push(&mut self, raw_pts_90k: u64) -> PtsSample {
         let raw = raw_pts_90k & PTS_MASK;
