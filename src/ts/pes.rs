@@ -5,8 +5,9 @@
 // PES payload bytes together with the presentation timestamp in milliseconds.
 //
 // PTS normalisation: the first observed caption PTS (90 kHz absolute) is used
-// as the reference epoch, matching the convention used by libaribcaption
-// (i.e. the same origin as captions.pts_start).
+// as the reference epoch, so the first caption of a file sits at t = 0.
+// Timestamps are unwrapped across the 33-bit PTS rollover and implausible jumps
+// are absorbed by `ts::pts::PtsNormalizer`, which owns all of that arithmetic.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -16,10 +17,13 @@ use std::path::Path;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+use crate::ts::pts::PtsNormalizer;
+
 // One reassembled PES unit from the caption elementary stream.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CaptionPes {
-    /// PTS in milliseconds, normalised so that the first packet in the stream = 0.
+    /// PTS in milliseconds, normalised so that the first packet in the stream = 0
+    /// and unwrapped across the 33-bit PTS rollover.
     pub pts_ms: i64,
     /// Raw PES payload bytes (data_identifier = 0x80, … onward).
     pub payload: Vec<u8>,
@@ -262,11 +266,36 @@ pub fn find_caption_pid(ts_path: &Path) -> Option<u16> {
 
 // ── PES demultiplexer ─────────────────────────────────────────────────────
 
+/// Normalise this PES's PTS and push it to `result` when it carries a payload.
+///
+/// Extracted so the two flush points in `demux_caption_pes` (mid-stream PUSI and
+/// end-of-file) share one implementation.  The duplicated inline version of this
+/// logic is what let a 33-bit wrap bug ship in two places at once.
+fn flush_pes(
+    norm: &mut PtsNormalizer,
+    pes_buf: &[u8],
+    pes_pts_90k: Option<u64>,
+    result: &mut Vec<CaptionPes>,
+) {
+    let Some(pts90) = pes_pts_90k else { return };
+    // Push before the payload check so the epoch matches the previous behaviour:
+    // the first PTS-bearing PES defines t = 0 whether or not it has a payload.
+    let sample = norm.push(pts90);
+    let payload = extract_pes_payload(pes_buf);
+    if !payload.is_empty() {
+        result.push(CaptionPes {
+            pts_ms: sample.ms,
+            payload,
+        });
+    }
+}
+
 /// Read the entire TS file and return all caption PES units for `caption_pid`.
 ///
 /// Packets are accumulated into PES frames using the PUSI flag.  PTS values
 /// are extracted from the PES header (33-bit, 90 kHz) and converted to ms.
-/// The first observed PTS becomes the reference epoch (pts = 0).
+/// The first observed PTS becomes the reference epoch (pts = 0); later values
+/// are unwrapped across the 33-bit rollover by `PtsNormalizer`.
 pub fn demux_caption_pes(ts_path: &Path, caption_pid: u16) -> Vec<CaptionPes> {
     let mut file = match File::open(ts_path) {
         Ok(f) => f,
@@ -281,8 +310,8 @@ pub fn demux_caption_pes(ts_path: &Path, caption_pid: u16) -> Vec<CaptionPes> {
     let mut pes_total: usize = 0; // declared PES packet length (0 = unbounded)
     let mut pes_pts_90k: Option<u64> = None;
 
-    // Reference epoch: abs 90kHz PTS of the first packet seen.
-    let mut epoch: Option<u64> = None;
+    // Owns the reference epoch and all 33-bit unwrapping.
+    let mut norm = PtsNormalizer::new();
 
     loop {
         if file.read_exact(&mut packet).is_err() {
@@ -315,14 +344,7 @@ pub fn demux_caption_pes(ts_path: &Path, caption_pid: u16) -> Vec<CaptionPes> {
         if pusi {
             // Flush the previously accumulated PES (if any) before starting new.
             if !pes_buf.is_empty() {
-                if let Some(pts90) = pes_pts_90k {
-                    let ep = *epoch.get_or_insert(pts90);
-                    let pts_ms = (pts90.wrapping_sub(ep) / 90) as i64;
-                    let payload = extract_pes_payload(&pes_buf);
-                    if !payload.is_empty() {
-                        result.push(CaptionPes { pts_ms, payload });
-                    }
-                }
+                flush_pes(&mut norm, &pes_buf, pes_pts_90k, &mut result);
             }
 
             // Start accumulating a new PES.
@@ -346,9 +368,7 @@ pub fn demux_caption_pes(ts_path: &Path, caption_pid: u16) -> Vec<CaptionPes> {
             if pts_dts_flags != 0 && avail >= 14 {
                 let p = &packet[ps + 9..]; // PES optional header start
                 if p.len() >= 5 {
-                    let pts = parse_pts(p);
-                    pes_pts_90k = Some(pts);
-                    epoch.get_or_insert(pts);
+                    pes_pts_90k = Some(parse_pts(p));
                 }
             }
 
@@ -379,14 +399,17 @@ pub fn demux_caption_pes(ts_path: &Path, caption_pid: u16) -> Vec<CaptionPes> {
 
     // Flush any trailing PES.
     if !pes_buf.is_empty() {
-        if let Some(pts90) = pes_pts_90k {
-            let ep = *epoch.get_or_insert(pts90);
-            let pts_ms = (pts90.wrapping_sub(ep) / 90) as i64;
-            let payload = extract_pes_payload(&pes_buf);
-            if !payload.is_empty() {
-                result.push(CaptionPes { pts_ms, payload });
-            }
-        }
+        flush_pes(&mut norm, &pes_buf, pes_pts_90k, &mut result);
+    }
+
+    if norm.discontinuities() > 0 {
+        tracing::warn!(
+            "{}: absorbed {} PTS discontinuity/discontinuities on PID 0x{:04X}; \
+             caption timestamps after the first one may not match the file timeline",
+            ts_path.display(),
+            norm.discontinuities(),
+            caption_pid,
+        );
     }
 
     result
