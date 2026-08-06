@@ -1,19 +1,40 @@
 // Route handlers: GET /thumb/{id}/{n}, GET /full/{id}/{n}, GET /preview/{id},
-//                 POST /select/{id}/{n}, POST /recapture/{id}
+//                 GET /sub/{id}, POST /select/{id}/{n}, POST /recapture/{id}
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{
     body::Bytes,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
 };
+use serde::Deserialize;
 use tokio::sync::Mutex as AsyncMutex;
 
-use crate::media::capture::{self};
+use crate::media::capture::{self, SubMode};
+use crate::ts::subtitle;
 
 use super::AppState;
+
+/// Query string for `GET /full/{id}/{n}`.
+///
+/// `sub=0` asks for the raw frame so the client can composite `/sub/{id}`
+/// itself; any other value (including an absent parameter) keeps the historical
+/// behaviour of burning the subtitles in with ffmpeg.
+#[derive(Debug, Deserialize)]
+pub struct FullQuery {
+    sub: Option<u8>,
+}
+
+impl FullQuery {
+    fn sub_mode(&self) -> SubMode {
+        match self.sub {
+            Some(0) => SubMode::Raw,
+            _ => SubMode::Burned,
+        }
+    }
+}
 
 /// GET /thumb/:id/:n  — serve a contact-sheet thumbnail JPEG.
 ///
@@ -81,7 +102,7 @@ pub async fn thumb(
         n,
     );
 
-    serve_jpeg(path).await
+    serve_image(path, "image/jpeg").await
 }
 
 /// GET /preview/:id  — serve a subtitle-free single-frame preview JPEG.
@@ -129,7 +150,7 @@ pub async fn preview(
         id,
     );
 
-    serve_jpeg(path).await
+    serve_image(path, "image/jpeg").await
 }
 
 /// POST /select/:id/:n  — persist the user's chosen frame for a caption.
@@ -163,14 +184,21 @@ pub async fn select_frame(
 /// Generates the frame on first access using the full `cfg.width × cfg.height`
 /// resolution and `cfg.jpeg_quality`.  Subsequent requests return the cached file.
 /// Uses the same per-caption lock as `thumb` to avoid duplicate ffmpeg runs.
+///
+/// `?sub=0` returns the frame without the subtitle overlay, cached separately as
+/// `full/{id}_{n:02}_nosub.jpg`.  The contact sheet uses this variant and draws
+/// `/sub/{id}` on top in a canvas so the subtitle can be toggled without
+/// another ffmpeg run.
 // axum handler; calls ensure_full → real ffmpeg on a live TS file.
 // Confirmed separately (integration / manual). Not included in the coverage gate.
 #[cfg_attr(coverage_nightly, coverage(off))]
 pub async fn full(
     State(state): State<AppState>,
     Path((id, n)): Path<(i64, u32)>,
+    Query(q): Query<FullQuery>,
 ) -> Result<impl IntoResponse, StatusCode> {
     let (ts_path, pts_start, pts_end) = lookup_caption(&state, id).await?;
+    let mode = q.sub_mode();
 
     let lock: Arc<AsyncMutex<()>> = {
         let mut map = state.gen_locks.lock().unwrap();
@@ -183,7 +211,7 @@ pub async fn full(
     let cfg = state.config.clone();
     let ts_path_cl = ts_path.clone();
     tokio::task::spawn_blocking(move || {
-        capture::ensure_full(&cfg, &ts_path_cl, id, pts_start, pts_end, n)
+        capture::ensure_full(&cfg, &ts_path_cl, id, pts_start, pts_end, n, mode)
     })
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -201,9 +229,56 @@ pub async fn full(
         &stem,
         id,
         n,
+        mode,
     );
 
-    serve_jpeg(path).await
+    serve_image(path, "image/jpeg").await
+}
+
+/// GET /sub/:id  — serve the rendered ARIB subtitle overlay as a PNG.
+///
+/// The PNG is a full-frame (`cfg.capture.width × height`) RGBA canvas that is
+/// transparent everywhere except the caption, so a client can scale it to the
+/// displayed size and draw it at (0, 0) — exactly what the ffmpeg overlay branch
+/// in `build_ffmpeg_args` does.
+///
+/// Returns `204 No Content` when the caption has no renderable subtitle (no PES
+/// blob, empty caption list, or a fully transparent render).  Callers treat that
+/// as "no overlay layer" rather than an error.
+// axum handler; drives ensure_caption_png → aribcaption FFI over a live PES blob.
+// Confirmed separately (integration / manual). Not included in the coverage gate.
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub async fn sub_png(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Response, StatusCode> {
+    let (ts_path, pts_start, _) = lookup_caption(&state, id).await?;
+
+    let lock: Arc<AsyncMutex<()>> = {
+        let mut map = state.gen_locks.lock().unwrap();
+        map.entry(id)
+            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+            .clone()
+    };
+    let _guard = lock.lock().await;
+
+    let cfg = state.config.clone();
+    let ts_path_cl = ts_path.clone();
+    let png = tokio::task::spawn_blocking(move || {
+        let cache_dir = std::path::Path::new(&cfg.paths.cache_dir);
+        subtitle::ensure_caption_png(&cfg.capture, cache_dir, &ts_path_cl, id, pts_start)
+    })
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .map_err(|e| {
+        tracing::error!("subtitle PNG render failed for {}: {:#}", id, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    match png {
+        Some(path) => Ok(serve_image(path, "image/png").await?.into_response()),
+        None => Ok(StatusCode::NO_CONTENT.into_response()),
+    }
 }
 
 /// POST /recapture/:id  — clear the cached images for a single caption.
@@ -282,14 +357,38 @@ async fn lookup_caption(state: &AppState, id: i64) -> Result<(PathBuf, i64, i64)
     Ok((PathBuf::from(row.path), row.pts_start, row.pts_end))
 }
 
-// Async IO helper: reads a cached JPEG from disk and builds the HTTP response.
+// Async IO helper: reads a cached image from disk and builds the HTTP response.
 // Confirmed separately (integration / manual). Not included in the coverage gate.
 #[cfg_attr(coverage_nightly, coverage(off))]
-async fn serve_jpeg(path: PathBuf) -> Result<impl IntoResponse, StatusCode> {
+async fn serve_image(
+    path: PathBuf,
+    content_type: &'static str,
+) -> Result<impl IntoResponse, StatusCode> {
     let bytes = tokio::fs::read(&path).await.map_err(|e| {
-        tracing::error!("failed to read JPEG at {}: {}", path.display(), e);
+        tracing::error!("failed to read image at {}: {}", path.display(), e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    Ok(([(header::CONTENT_TYPE, "image/jpeg")], Bytes::from(bytes)))
+    Ok(([(header::CONTENT_TYPE, content_type)], Bytes::from(bytes)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FullQuery, SubMode};
+
+    #[test]
+    fn sub_zero_selects_raw_mode() {
+        assert_eq!(FullQuery { sub: Some(0) }.sub_mode(), SubMode::Raw);
+    }
+
+    #[test]
+    fn absent_sub_keeps_burned_mode() {
+        // Existing /full/{id}/{n} URLs must keep burning subtitles in.
+        assert_eq!(FullQuery { sub: None }.sub_mode(), SubMode::Burned);
+    }
+
+    #[test]
+    fn sub_one_selects_burned_mode() {
+        assert_eq!(FullQuery { sub: Some(1) }.sub_mode(), SubMode::Burned);
+    }
 }

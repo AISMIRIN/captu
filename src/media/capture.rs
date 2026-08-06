@@ -87,12 +87,41 @@ pub fn thumb_path(cache_dir: &Path, stem: &str, id: i64, n: u32) -> PathBuf {
         .join(format!("{}_{:02}.jpg", id, n))
 }
 
+/// Whether a generated JPEG has the ARIB subtitle PNG composited into it.
+///
+/// The two variants are cached under different filenames on purpose.  Reusing
+/// one path for both would make an existing cache entry silently answer the
+/// wrong request — a stale burned-in frame served as a subtitle-free one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubMode {
+    /// Subtitles burned in by the ffmpeg overlay filter.
+    Burned,
+    /// Raw frame with no overlay; the client composites the subtitle PNG itself.
+    Raw,
+}
+
+impl SubMode {
+    /// Filename suffix that keeps the two variants from colliding in the cache.
+    ///
+    /// `Burned` keeps the historical (suffix-free) name so already-cached files
+    /// stay valid.
+    fn suffix(self) -> &'static str {
+        match self {
+            SubMode::Burned => "",
+            SubMode::Raw => "_nosub",
+        }
+    }
+}
+
 /// Path where a full-resolution download JPEG is cached.
-pub fn full_path(cache_dir: &Path, stem: &str, id: i64, n: u32) -> PathBuf {
+///
+/// Both variants live in `full/` and start with `{id}_`, so the `{id}_*.jpg`
+/// glob in `clear_caption_cache` removes them together.
+pub fn full_path(cache_dir: &Path, stem: &str, id: i64, n: u32, mode: SubMode) -> PathBuf {
     cache_dir
         .join(stem)
         .join("full")
-        .join(format!("{}_{:02}.jpg", id, n))
+        .join(format!("{}_{:02}{}.jpg", id, n, mode.suffix()))
 }
 
 /// Path where a subtitle-free single-frame preview JPEG is cached.
@@ -406,9 +435,14 @@ pub fn ensure_thumbnails(
 
 /// Generate a single full-resolution JPEG for download / share.
 ///
-/// Output: `cache/{stem}/full/{id}_{n:02}.jpg`
+/// Output: `cache/{stem}/full/{id}_{n:02}.jpg` (`SubMode::Burned`) or
+/// `cache/{stem}/full/{id}_{n:02}_nosub.jpg` (`SubMode::Raw`)
 /// Resolution: `cfg.width × cfg.height` (full, e.g. 1920×1080)
 /// Quality: `cfg.jpeg_quality`
+///
+/// With `SubMode::Raw` the subtitle PNG is neither rendered nor overlaid, so the
+/// frame comes out of the cheaper `-vf` branch of `build_ffmpeg_args`.  The
+/// caller is then responsible for compositing `/sub/{id}` on top.
 ///
 /// Only the requested frame `n` is generated; other frames are not touched.
 // Requires a real TS file and ffmpeg; delegates to run_ffmpeg.
@@ -421,11 +455,12 @@ pub fn ensure_full(
     pts_start_ms: i64,
     pts_end_ms: i64,
     n: u32,
+    mode: SubMode,
 ) -> Result<()> {
     let stem = ts_stem(ts_path);
     let cache_dir = Path::new(&cfg.paths.cache_dir);
 
-    let dst = full_path(cache_dir, &stem, id, n);
+    let dst = full_path(cache_dir, &stem, id, n, mode);
     if dst.exists() {
         return Ok(());
     }
@@ -450,8 +485,12 @@ pub fn ensure_full(
         0
     });
 
-    let sub_png_opt =
-        subtitle::ensure_caption_png(&cfg.capture, cache_dir, ts_path, id, pts_start_ms)?;
+    let sub_png_opt = match mode {
+        SubMode::Burned => {
+            subtitle::ensure_caption_png(&cfg.capture, cache_dir, ts_path, id, pts_start_ms)?
+        }
+        SubMode::Raw => None,
+    };
 
     let dst_str = dst.to_str().unwrap_or("").to_string();
 
@@ -561,8 +600,9 @@ pub fn ensure_preview(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_ffmpeg_args, build_preview_args, build_select_expr, caption_window, frame_indices,
-        full_path, preview_path, preview_target_sec, thumb_path, ts_stem, CaptureParams,
+        build_ffmpeg_args, build_preview_args, build_select_expr, caption_window,
+        clear_caption_cache, frame_indices, full_path, preview_path, preview_target_sec,
+        thumb_path, ts_stem, CaptureParams, SubMode,
     };
     use std::path::Path;
 
@@ -587,14 +627,70 @@ mod tests {
 
     #[test]
     fn full_path_format() {
-        let p = full_path(Path::new("/cache"), "ep01", 42, 3);
+        let p = full_path(Path::new("/cache"), "ep01", 42, 3, SubMode::Burned);
         assert_eq!(p, Path::new("/cache/ep01/full/42_03.jpg"));
     }
 
     #[test]
     fn full_path_zero_padded_n() {
-        let p = full_path(Path::new("/cache"), "ep01", 1, 0);
+        let p = full_path(Path::new("/cache"), "ep01", 1, 0, SubMode::Burned);
         assert_eq!(p, Path::new("/cache/ep01/full/1_00.jpg"));
+    }
+
+    #[test]
+    fn full_path_raw_uses_nosub_suffix() {
+        // The two modes must never share a filename: a cached burned-in frame
+        // served as a subtitle-free one would be a silent wrong answer.
+        let p = full_path(Path::new("/cache"), "ep01", 42, 3, SubMode::Raw);
+        assert_eq!(p, Path::new("/cache/ep01/full/42_03_nosub.jpg"));
+    }
+
+    #[test]
+    fn full_path_raw_zero_padded_n() {
+        let p = full_path(Path::new("/cache"), "ep01", 1, 0, SubMode::Raw);
+        assert_eq!(p, Path::new("/cache/ep01/full/1_00_nosub.jpg"));
+    }
+
+    #[test]
+    fn full_path_modes_differ() {
+        let burned = full_path(Path::new("/cache"), "ep01", 7, 2, SubMode::Burned);
+        let raw = full_path(Path::new("/cache"), "ep01", 7, 2, SubMode::Raw);
+        assert_ne!(burned, raw);
+    }
+
+    // ── clear_caption_cache ────────────────────────────────────────────────────
+
+    #[test]
+    fn clear_caption_cache_removes_both_sub_modes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let stem = "ep01";
+
+        for sub in ["thumbs", "full", "preview", "sub"] {
+            std::fs::create_dir_all(root.join(stem).join(sub)).unwrap();
+        }
+
+        let burned = full_path(root, stem, 42, 3, SubMode::Burned);
+        let raw = full_path(root, stem, 42, 3, SubMode::Raw);
+        let thumb = thumb_path(root, stem, 42, 3);
+        let preview = preview_path(root, stem, 42);
+        let sub_png = root.join(stem).join("sub").join("42.png");
+        // Another caption must survive: the glob is `{id}_*`, so 4 must not be
+        // caught by a request to clear 42.
+        let other = full_path(root, stem, 4, 3, SubMode::Raw);
+
+        for p in [&burned, &raw, &thumb, &preview, &sub_png, &other] {
+            std::fs::write(p, b"x").unwrap();
+        }
+
+        clear_caption_cache(root, stem, 42).unwrap();
+
+        assert!(!burned.exists(), "burned-in full JPEG should be removed");
+        assert!(!raw.exists(), "subtitle-free full JPEG should be removed");
+        assert!(!thumb.exists());
+        assert!(!preview.exists());
+        assert!(!sub_png.exists());
+        assert!(other.exists(), "another caption must not be touched");
     }
 
     // ── preview_path ───────────────────────────────────────────────────────────

@@ -4,11 +4,10 @@
 // PES packets for the ARIB caption elementary stream, and returns the raw
 // PES payload bytes together with the presentation timestamp in milliseconds.
 //
-// PTS normalisation: the first PCR of the file is the reference epoch, so t = 0
-// is the start of the recording and timestamps line up with how ffmpeg
-// interprets `-ss`.  Files with no usable PCR fall back to the first caption
-// PTS.  Unwrapping across the 33-bit rollover and absorbing implausible jumps
-// are handled by `ts::pts::PtsNormalizer`, which owns all of that arithmetic.
+// PTS normalisation: the first observed caption PTS (90 kHz absolute) is used
+// as the reference epoch, so the first caption of a file sits at t = 0.
+// Timestamps are unwrapped across the 33-bit PTS rollover and implausible jumps
+// are absorbed by `ts::pts::PtsNormalizer`, which owns all of that arithmetic.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -23,13 +22,8 @@ use crate::ts::pts::PtsNormalizer;
 // One reassembled PES unit from the caption elementary stream.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CaptionPes {
-    /// PTS in milliseconds from the start of the file (first PCR), unwrapped
-    /// across the 33-bit PTS rollover.  Falls back to "from the first caption"
-    /// when the file carries no usable PCR.
-    ///
-    /// Must stay on the same timeline as `captions.pts_start`: the renderer
-    /// replays this blob and looks up by the stored `pts_start`, so regenerating
-    /// one without the other silently produces blank subtitles.
+    /// PTS in milliseconds, normalised so that the first packet in the stream = 0
+    /// and unwrapped across the 33-bit PTS rollover.
     pub pts_ms: i64,
     /// Raw PES payload bytes (data_identifier = 0x80, … onward).
     pub payload: Vec<u8>,
@@ -71,10 +65,6 @@ pub struct PsiInfo {
     /// data_component_id=0x0008 or 0x0012).  Falls back to the first
     /// stream_type=0x06 PID.  Used by the PES demultiplexer.
     pub caption_pid: Option<u16>,
-    /// PCR PID of the first program that declares one (`0x1FFF` means "none"
-    /// and is reported as `None`).  Used to anchor caption timestamps to the
-    /// start of the file rather than to the first caption.
-    pub pcr_pid: Option<u16>,
 }
 
 /// Scan the first ~50 000 TS packets, parse PAT + all PMTs in one pass, and
@@ -89,7 +79,6 @@ pub fn scan_psi(ts_path: &Path) -> PsiInfo {
             return PsiInfo {
                 caption_services: vec![],
                 caption_pid: None,
-                pcr_pid: None,
             }
         }
     };
@@ -108,8 +97,6 @@ pub fn scan_psi(ts_path: &Path) -> PsiInfo {
     // Caption ES PIDs — same split.
     let mut arib_pid: Option<u16> = None;
     let mut fallback_pid: Option<u16> = None;
-    // PCR PID of the first program that declares one.
-    let mut pcr_pid: Option<u16> = None;
 
     for _ in 0..50_000u32 {
         if file.read_exact(&mut packet).is_err() {
@@ -202,12 +189,6 @@ pub fn scan_psi(ts_path: &Path) -> PsiInfo {
                 continue;
             }
             let slen = (((data[1] as usize) & 0x0F) << 8) | data[2] as usize;
-            // PCR_PID sits at data[8..10], immediately before program_info_length.
-            // 0x1FFF is the "no PCR in this program" sentinel.
-            let pcr = ((data[8] as u16 & 0x1F) << 8) | data[9] as u16;
-            if pcr != 0x1FFF {
-                pcr_pid.get_or_insert(pcr);
-            }
             let prog_info_len = (((data[10] as usize) & 0x0F) << 8) | data[11] as usize;
             let end = (3 + slen).min(data.len()).saturating_sub(4);
             let mut p = 12 + prog_info_len;
@@ -273,7 +254,6 @@ pub fn scan_psi(ts_path: &Path) -> PsiInfo {
     PsiInfo {
         caption_services,
         caption_pid,
-        pcr_pid,
     }
 }
 
@@ -292,20 +272,14 @@ pub fn find_caption_pid(ts_path: &Path) -> Option<u16> {
 /// end-of-file) share one implementation.  The duplicated inline version of this
 /// logic is what let a 33-bit wrap bug ship in two places at once.
 fn flush_pes(
-    norm: &mut Option<PtsNormalizer>,
-    first_pcr: Option<u64>,
+    norm: &mut PtsNormalizer,
     pes_buf: &[u8],
     pes_pts_90k: Option<u64>,
     result: &mut Vec<CaptionPes>,
 ) {
     let Some(pts90) = pes_pts_90k else { return };
-    // Anchor to the first PCR when the file has one, so t = 0 is the start of
-    // the recording.  Without a PCR the first PTS-bearing PES defines t = 0,
-    // payload or not, which is the pre-anchoring behaviour.
-    let norm = norm.get_or_insert_with(|| match first_pcr {
-        Some(pcr) => PtsNormalizer::with_epoch(pcr),
-        None => PtsNormalizer::new(),
-    });
+    // Push before the payload check so the epoch matches the previous behaviour:
+    // the first PTS-bearing PES defines t = 0 whether or not it has a payload.
     let sample = norm.push(pts90);
     let payload = extract_pes_payload(pes_buf);
     if !payload.is_empty() {
@@ -319,19 +293,10 @@ fn flush_pes(
 /// Read the entire TS file and return all caption PES units for `caption_pid`.
 ///
 /// Packets are accumulated into PES frames using the PUSI flag.  PTS values
-/// are extracted from the PES header (33-bit, 90 kHz) and converted to ms, and
-/// unwrapped across the 33-bit rollover by `PtsNormalizer`.
-///
-/// `pcr_pid` selects the timeline origin:
-/// - `Some(pid)` — the first PCR on that PID becomes t = 0, so timestamps mean
-///   "ms from the start of the file", matching how ffmpeg interprets `-ss`.
-/// - `None`, or a file with no usable PCR — falls back to the first caption
-///   PTS, which leaves timestamps offset by however late captions start.
-pub fn demux_caption_pes(
-    ts_path: &Path,
-    caption_pid: u16,
-    pcr_pid: Option<u16>,
-) -> Vec<CaptionPes> {
+/// are extracted from the PES header (33-bit, 90 kHz) and converted to ms.
+/// The first observed PTS becomes the reference epoch (pts = 0); later values
+/// are unwrapped across the 33-bit rollover by `PtsNormalizer`.
+pub fn demux_caption_pes(ts_path: &Path, caption_pid: u16) -> Vec<CaptionPes> {
     let mut file = match File::open(ts_path) {
         Ok(f) => f,
         Err(_) => return vec![],
@@ -345,11 +310,8 @@ pub fn demux_caption_pes(
     let mut pes_total: usize = 0; // declared PES packet length (0 = unbounded)
     let mut pes_pts_90k: Option<u64> = None;
 
-    // First PCR seen on `pcr_pid`, used as the timeline origin when available.
-    let mut first_pcr: Option<u64> = None;
-    // Built lazily at the first flush so it can pick up `first_pcr`, which is
-    // only known once a PCR packet has been read.  Owns all 33-bit unwrapping.
-    let mut norm: Option<PtsNormalizer> = None;
+    // Owns the reference epoch and all 33-bit unwrapping.
+    let mut norm = PtsNormalizer::new();
 
     loop {
         if file.read_exact(&mut packet).is_err() {
@@ -360,31 +322,12 @@ pub fn demux_caption_pes(
         }
 
         let pid = ((packet[1] as u16 & 0x1F) << 8) | packet[2] as u16;
-        let afc = (packet[3] & 0x30) >> 4;
-
-        // Read the first PCR before the caption-PID filter below.  PCR travels
-        // on its own PID and usually in adaptation-field-only packets (afc == 2),
-        // both of which the caption path discards.
-        if first_pcr.is_none() && Some(pid) == pcr_pid && (afc & 0x02) != 0 {
-            // Adaptation field: [4] length, [5] flags (0x10 = PCR present),
-            // [6..12] PCR = 33-bit base | 6 reserved bits | 9-bit extension.
-            let af_len = packet[4] as usize;
-            if af_len >= 7 && (packet[5] & 0x10) != 0 {
-                first_pcr = Some(
-                    ((packet[6] as u64) << 25)
-                        | ((packet[7] as u64) << 17)
-                        | ((packet[8] as u64) << 9)
-                        | ((packet[9] as u64) << 1)
-                        | ((packet[10] as u64) >> 7),
-                );
-            }
-        }
-
         if pid != caption_pid {
             continue;
         }
 
         let pusi = (packet[1] & 0x40) != 0;
+        let afc = (packet[3] & 0x30) >> 4;
         if afc == 2 {
             continue;
         }
@@ -401,7 +344,7 @@ pub fn demux_caption_pes(
         if pusi {
             // Flush the previously accumulated PES (if any) before starting new.
             if !pes_buf.is_empty() {
-                flush_pes(&mut norm, first_pcr, &pes_buf, pes_pts_90k, &mut result);
+                flush_pes(&mut norm, &pes_buf, pes_pts_90k, &mut result);
             }
 
             // Start accumulating a new PES.
@@ -456,26 +399,16 @@ pub fn demux_caption_pes(
 
     // Flush any trailing PES.
     if !pes_buf.is_empty() {
-        flush_pes(&mut norm, first_pcr, &pes_buf, pes_pts_90k, &mut result);
+        flush_pes(&mut norm, &pes_buf, pes_pts_90k, &mut result);
     }
 
-    let discontinuities = norm.as_ref().map_or(0, PtsNormalizer::discontinuities);
-    if discontinuities > 0 {
+    if norm.discontinuities() > 0 {
         tracing::warn!(
             "{}: absorbed {} PTS discontinuity/discontinuities on PID 0x{:04X}; \
              caption timestamps after the first one may not match the file timeline",
             ts_path.display(),
-            discontinuities,
+            norm.discontinuities(),
             caption_pid,
-        );
-    }
-
-    if pcr_pid.is_some() && first_pcr.is_none() && !result.is_empty() {
-        tracing::warn!(
-            "{}: PCR PID 0x{:04X} declared but no PCR found; caption timestamps \
-             are anchored to the first caption and may be offset from the file start",
-            ts_path.display(),
-            pcr_pid.unwrap_or_default(),
         );
     }
 

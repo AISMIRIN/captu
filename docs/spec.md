@@ -43,12 +43,13 @@ captu/
 │   │   ├── mod.rs
 │   │   ├── cache.rs               # 画像キャッシュ管理 (サイズ集計 / 容量LRU削除 / 手動削除)
 │   │   └── capture.rs             # ffmpeg 単一パスサムネ生成 (コンタクトシート / フル解像度 / 直シークプレビュー)
+│   │                              #   SubMode で字幕焼き込み / 字幕なしを切替
 │   ├── routes/
 │   │   ├── mod.rs                 # AppState, build_router(), display_title(), fmt_ms(), like_escape()
 │   │   ├── search.rs              # GET / , GET /search
 │   │   ├── contact.rs             # GET /contact/{id}
-│   │   ├── capture.rs             # GET /thumb/{id}/{n} , GET /full/{id}/{n} , GET /preview/{id}
-│   │   │                          #   POST /select/{id}/{n} , POST /recapture/{id}
+│   │   ├── capture.rs             # GET /thumb/{id}/{n} , GET /full/{id}/{n}[?sub=0] , GET /preview/{id}
+│   │   │                          #   GET /sub/{id} , POST /select/{id}/{n} , POST /recapture/{id}
 │   │   ├── episodes.rs            # GET /api/episodes
 │   │   ├── tags.rs                # POST /caption/{id}/tags , POST /caption/{id}/tags/delete , GET /api/tags
 │   │   └── ingest.rs              # GET /ingest/status , GET /ingest/files , GET /ingest/file/{id}
@@ -70,7 +71,7 @@ captu/
 │   │   │                          #   ingest_files.html / ingest_file.html
 │   │   └── fragments/             # episodes.html / search_results.html / tag_options.html / tags.html
 │   └── static/
-│       ├── app.js                 # フレーム選択・JPEG共有/コピー/ダウンロード
+│       ├── app.js                 # フレーム選択・字幕オン/オフのcanvas合成・JPEG共有/コピー/DL
 │       └── search.js              # 検索フィルタ・タグチップ・セッション復元
 │
 ├── docker/
@@ -87,7 +88,8 @@ captu/
 │       ├── thumbs/
 │       │   └── {caption_id}_{n:02}.jpg  # コンタクトシートJPEG (縮小表示用)
 │       └── full/
-│           └── {caption_id}_{n:02}.jpg  # フル解像度JPEG (DL/共有用、on-demand)
+│           ├── {caption_id}_{n:02}.jpg        # フル解像度JPEG・字幕焼き込み (on-demand)
+│           └── {caption_id}_{n:02}_nosub.jpg  # フル解像度JPEG・字幕なし (ブラウザ合成用、on-demand)
 │
 ├── data/
 │   └── captions.db                # volume
@@ -208,10 +210,8 @@ CREATE TABLE IF NOT EXISTS ts_files (
 CREATE TABLE IF NOT EXISTS captions (
     id         INTEGER PRIMARY KEY,
     ts_file_id INTEGER NOT NULL REFERENCES ts_files(id),
-    -- 基準はファイル先頭 (最初のPCR)。ffmpeg の -ss と同じ原点なので
-    -- シーク位置がそのまま一致する。PCRを持たないTSでは「最初に観測した
-    -- 字幕PES」にフォールバックする。33bitラップは ts::pts::PtsNormalizer
-    -- で巻き戻し済みなので単調増加する。
+    -- 基準は「そのファイルで最初に観測した字幕PES」。33bitラップは
+    -- ts::pts::PtsNormalizer で巻き戻し済みなので単調増加する。
     pts_start  INTEGER NOT NULL,   -- 表示開始 (ms)
     pts_end    INTEGER NOT NULL,   -- 表示終了 (ms)
     text       TEXT NOT NULL
@@ -394,6 +394,12 @@ ffmpeg -y -ss {pre_seek} -t {dur} -i file:{ts} [-i {sub.png}]
 
 出力: `cache/{stem}/full/{caption_id}_{n:02}.jpg`（DL/共有用、初回アクセス時に生成・キャッシュ）
 
+**字幕モード (`SubMode`)**: `SubMode::Raw`（`?sub=0`）では字幕PNGを描画も合成もせず、
+overlay のない `-vf` 経路だけを通る。出力先は `full/{id}_{n:02}_nosub.jpg` と別名にする。
+既存キャッシュには字幕が焼き込まれているため、同じパスを使い回すと
+「字幕オフなのに字幕が出る」という無言の誤りになる。
+`clear_caption_cache` の glob は `full/{id}_*.jpg` なので両方まとめて消える。
+
 ### 字幕なしプレビュー生成 (`ensure_preview`)
 
 `GET /preview/{id}` からトリガーされる単一フレーム取得（検索結果カード用、字幕オーバーレイなし）。
@@ -410,6 +416,26 @@ ffmpeg -y -ss {target_sec} -i file:{ts}
 
 出力: `cache/{stem}/preview/{caption_id}.jpg`（初回アクセス時に生成・キャッシュ。
 コンタクトシート生成後は検索結果が `/thumb` URL に自然に切り替わる）
+
+### ブラウザ側での字幕合成
+
+コンタクトシートの拡大プレビューだけは、ffmpeg で焼き込むのではなくブラウザで合成する。
+
+1. `GET /full/{id}/{n}?sub=0` — 字幕なしのフル解像度JPEG
+2. `GET /sub/{id}` — 字幕PNG（1キャプションにつき1枚。ページ内で1回だけ取得して保持）
+3. canvas に 1 を描き、字幕オンなら 2 を出力サイズへ拡大して重ねる
+4. 結果を object URL にして `<img id="enlarged">` に渡す
+
+同一フレームに対する字幕あり/なしを ffmpeg で2本作ると、支配項である
+NAS シーク + デコード + bwdif がもう一度走り `full/` のキャッシュも倍になる。
+canvas 合成なら ffmpeg は字幕なし1本だけで済み、トグルはネットワークも
+ffmpeg も伴わない再描画だけになる。
+
+`<canvas>` をそのまま置かず object URL 経由で `<img>` に載せるのは、
+ブラウザ標準の「画像をコピー」「名前を付けて保存」を合成結果に対して効かせるため。
+
+字幕あり時のみ canvas で JPEG 品質 0.95 に再エンコードされる（圧縮世代が1つ増える）。
+字幕なし時はサーバのバイト列をそのまま表示・配布するので再エンコードは発生しない。
 
 ---
 
@@ -445,10 +471,23 @@ q・フィルタ・filter が全て未指定の場合は空結果を返す。
 同一 caption への並列リクエストはロック制御（1本のみ ffmpeg を実行、後続はキャッシュヒット）。
 初回生成成功時に `thumbnails(caption_id, default_frame)` を INSERT OR IGNORE。
 
-### GET /full/{id}/{n}
+### GET /full/{id}/{n}?sub={0|1}
 フル解像度JPEG配信（`cfg.width × cfg.height`）。DL・Web Share・クリップボードコピー用。
 `/thumb` と同じ per-caption ロック制御。キャッシュ済みならそのまま返す。
-`cache/{stem}/full/{id}_{n:02}.jpg` に保存。
+
+`sub` 省略時（および `0` 以外）は従来どおり字幕を焼き込み `cache/{stem}/full/{id}_{n:02}.jpg` に保存。
+`sub=0` は字幕なしのフレームを `cache/{stem}/full/{id}_{n:02}_nosub.jpg` に保存する。
+コンタクトシートは後者を使い、字幕はブラウザ側で重ねる。
+`sub` が数値として解釈できない場合は 400。
+
+### GET /sub/{id}
+字幕オーバーレイPNG配信。`cache/{stem}/sub/{id}.png` を on-demand 描画してから返す。
+全画面（`cfg.width × cfg.height`）の RGBA キャンバスで、字幕以外は透明。
+表示サイズへ拡大して (0, 0) に重ねるだけで位置が合う（ffmpeg の overlay 分岐と同じ扱い）。
+`/thumb` と同じ per-caption ロック制御。
+
+字幕が描画できない場合（PESブロブなし / キャプション0件 / 全透明）は **204 No Content**。
+クライアントはこれをエラーではなく「オーバーレイなし」として扱い、字幕トグルを隠す。
 
 ### GET /preview/{id}
 字幕なし単フレームプレビューJPEG配信（`cfg.thumb_width × cfg.thumb_height`）。
@@ -536,17 +575,25 @@ status は変更しない（`done` のまま）。完全な再取り込みを行
 - 字幕テキストと最大 `thumb_count` 枚のサムネをグリッド表示
 - サムネクリック → `selectFrame(n)` で選択状態更新 + `POST /select/{id}/{n}` 呼び出し
   （初期表示時はハイライトのみで POST しない — 閲覧しただけでは `thumbnails` に記録されない）
-- 拡大プレビューを上部に表示
+- 拡大プレビューを上部に表示。`src` はテンプレートに埋めず `renderEnlarged()` が
+  object URL を入れる（サーバ側 `src` を残すと字幕焼き込み版の ffmpeg が余計に走るため）
+- 字幕あり/なしトグル。既定は「字幕あり」で、永続化せず毎回リセットする。
+  `GET /sub/{id}` が 204 を返したキャプションではトグル自体を隠す
+- サムネ帯と検索結果は従来どおり字幕焼き込みの `/thumb` を使う（トグルの対象外）
 
 ### JPEG取得後の処理 (static/app.js)
 
+配布するバイト列は `renderEnlarged()` が作ったもの（`_currentBlob`）をそのまま使う。
+画面に出ているものと共有・コピー・保存されるものが必ず一致する。
+
 ```javascript
 async function handleJpeg(captionId, frameN) {
-    const res = await fetch(`/full/${captionId}/${frameN}`);
-    const blob = await res.blob();
+    const blob = _currentBlob;  // renderEnlarged() の合成結果 = 画面に出ている画像
+    const suffix = _subOn && _subImg ? '' : '_nosub';
+    const filename = `caption_${captionId}_${frameN}${suffix}.jpg`;
 
     if (window.isSecureContext && navigator.share && navigator.canShare) {
-        const file = new File([blob], `caption_${captionId}_${frameN}.jpg`, { type: 'image/jpeg' });
+        const file = new File([blob], filename, { type: 'image/jpeg' });
         if (navigator.canShare({ files: [file] })) {
             await navigator.share({ files: [file] });  // Stage 1: Web Share (スマホ等)
             return;
@@ -554,7 +601,10 @@ async function handleJpeg(captionId, frameN) {
     }
 
     if (window.isSecureContext && navigator.clipboard?.write) {
-        await navigator.clipboard.write([new ClipboardItem({ 'image/jpeg': blob })]);
+        // Chromium / Safari の async clipboard は image/png しか保証しないため
+        // canvas から PNG を出す。image/jpeg を渡すと throw する。
+        const png = await canvasBlob('image/png');
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
         showToast('クリップボードにコピーしました');  // Stage 2: Clipboard (PC/HTTPS)
         return;
     }
@@ -562,11 +612,14 @@ async function handleJpeg(captionId, frameN) {
     // Stage 3: download fallback (HTTP LAN等)
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `caption_${captionId}_${frameN}.jpg`;
+    a.download = filename;
     a.click();
     showToast('画像を保存しました');
 }
 ```
+
+拡大プレビュー自体を右クリックしても、合成結果に対して
+「画像をコピー」「名前を付けて保存」がそのまま使える。
 
 ---
 
