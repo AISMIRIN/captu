@@ -100,13 +100,13 @@ fn pmt_section_with_arib(svc_id: u16, caption_pid: u16) -> Vec<u8> {
         (slen & 0xFF) as u8,
         (svc_id >> 8) as u8,
         (svc_id & 0xFF) as u8,
-        0xC1,                                 // version+current
-        0x00,                                 // section_number
-        0x00,                                 // last_section_number
-        0xE0 | ((PCR_PID >> 8) as u8 & 0x1F), // PCR_PID high (reserved | bits)
-        (PCR_PID & 0xFF) as u8,               // PCR_PID low
-        0xF0,                                 // prog_info_len high (0)
-        0x00,                                 // prog_info_len low (0)
+        0xC1, // version+current
+        0x00, // section_number
+        0x00, // last_section_number
+        0xE0, // PCR_PID high (reserved)
+        0x00, // PCR_PID low
+        0xF0, // prog_info_len high (0)
+        0x00, // prog_info_len low (0)
         // ES entry
         0x06, // stream_type = private data
         0xE0 | ((caption_pid >> 8) as u8 & 0x1F),
@@ -137,8 +137,8 @@ fn pmt_section_no_arib(svc_id: u16, caption_pid: u16) -> Vec<u8> {
         0xC1,
         0x00,
         0x00,
-        0xE0 | ((PCR_PID >> 8) as u8 & 0x1F), // PCR_PID high
-        (PCR_PID & 0xFF) as u8,               // PCR_PID low
+        0xE0,
+        0x00,
         0xF0,
         0x00,
         // ES entry (no descriptors)
@@ -176,27 +176,6 @@ fn pes_header_with_pts(pts_90k: u64, payload: &[u8]) -> Vec<u8> {
     h.extend_from_slice(&encode_pts(pts_90k));
     h.extend_from_slice(payload);
     h
-}
-
-/// Build a 188-byte TS packet carrying only an adaptation field with a PCR.
-///
-/// Adaptation field layout: [4] length, [5] flags (0x10 = PCR present),
-/// [6..12] PCR = 33-bit base | 6 reserved bits | 9-bit extension.
-fn pcr_packet(pid: u16, pcr_base_90k: u64) -> [u8; 188] {
-    let mut pkt = [0xFFu8; 188];
-    pkt[0] = 0x47;
-    pkt[1] = (pid >> 8) as u8 & 0x1F; // PUSI = 0
-    pkt[2] = (pid & 0xFF) as u8;
-    pkt[3] = 0x20; // adaptation field only, no payload
-    pkt[4] = 183; // adaptation_field_length (fills the packet)
-    pkt[5] = 0x10; // PCR_flag
-    pkt[6] = (pcr_base_90k >> 25) as u8;
-    pkt[7] = (pcr_base_90k >> 17) as u8;
-    pkt[8] = (pcr_base_90k >> 9) as u8;
-    pkt[9] = (pcr_base_90k >> 1) as u8;
-    pkt[10] = ((pcr_base_90k & 0x01) << 7) as u8; // low bit + reserved/extension
-    pkt[11] = 0x00;
-    pkt
 }
 
 /// Write a sequence of 188-byte TS packets to a tempfile and return the path.
@@ -331,14 +310,14 @@ fn find_caption_pid_empty_stream_returns_none() {
 
 #[test]
 fn demux_caption_pes_nonexistent_file_returns_empty() {
-    let result = demux_caption_pes(std::path::Path::new("/nonexistent/x.ts"), 0x0200, None);
+    let result = demux_caption_pes(std::path::Path::new("/nonexistent/x.ts"), 0x0200);
     assert!(result.is_empty());
 }
 
 #[test]
 fn demux_caption_pes_empty_file_returns_empty() {
     let f = tempfile::NamedTempFile::new().unwrap();
-    let result = demux_caption_pes(f.path(), 0x0200, None);
+    let result = demux_caption_pes(f.path(), 0x0200);
     assert!(result.is_empty());
 }
 
@@ -353,7 +332,7 @@ fn demux_caption_pes_wrong_pid_returns_empty() {
     let pkt = pes_packet(caption_pid, true, &pes_data);
 
     let (_f, path) = write_ts_file(&[pkt]);
-    let result = demux_caption_pes(&path, wrong_pid, None);
+    let result = demux_caption_pes(&path, wrong_pid);
     assert!(result.is_empty(), "wrong PID should yield no results");
 }
 
@@ -374,7 +353,7 @@ fn demux_caption_pes_single_packet_within_one_ts_packet() {
     let pkt2 = pes_packet(caption_pid, true, &pes_data2);
 
     let (_f, path) = write_ts_file(&[pkt1, pkt2]);
-    let result = demux_caption_pes(&path, caption_pid, None);
+    let result = demux_caption_pes(&path, caption_pid);
 
     // First PES should be flushed by the second PUSI.
     assert!(!result.is_empty(), "should get at least one PES unit");
@@ -410,7 +389,7 @@ fn demux_caption_pes_pts_normalized_to_first_seen() {
     let pkt3 = pes_packet(caption_pid, true, &pes3);
 
     let (_f, path) = write_ts_file(&[pkt1, pkt2, pkt3]);
-    let result = demux_caption_pes(&path, caption_pid, None);
+    let result = demux_caption_pes(&path, caption_pid);
 
     assert!(result.len() >= 2, "should have at least 2 flushed units");
     assert_eq!(result[0].pts_ms, 0, "epoch PTS normalizes to 0 ms");
@@ -436,7 +415,7 @@ fn demux_caption_pes_skips_packet_without_pts() {
 
     let pkt = pes_packet(caption_pid, true, &pes);
     let (_f, path) = write_ts_file(&[pkt]);
-    let result = demux_caption_pes(&path, caption_pid, None);
+    let result = demux_caption_pes(&path, caption_pid);
     // No second PUSI arrives to flush, and no PTS → should be empty.
     assert!(
         result.is_empty(),
@@ -468,7 +447,7 @@ fn demux_pts_sequence(caption_pid: u16, pts_values: &[u64]) -> Vec<i64> {
         })
         .collect();
     let (_f, path) = write_ts_file(&packets);
-    demux_caption_pes(&path, caption_pid, None)
+    demux_caption_pes(&path, caption_pid)
         .iter()
         .map(|c| c.pts_ms)
         .collect()
@@ -550,7 +529,7 @@ fn demux_caption_pes_adaptation_field_only_skipped() {
     pkt[3] = 0x20; // adaptation_field_control=10 (no payload)
 
     let (_f, path) = write_ts_file(&[pkt]);
-    let result = demux_caption_pes(&path, caption_pid, None);
+    let result = demux_caption_pes(&path, caption_pid);
     assert!(result.is_empty());
 }
 
@@ -577,7 +556,7 @@ fn demux_caption_pes_continuation_packet_extends_pes() {
     let pkt3 = pes_packet(caption_pid, true, &flush_data);
 
     let (_f, path) = write_ts_file(&[pkt1, pkt2, pkt3]);
-    let result = demux_caption_pes(&path, caption_pid, None);
+    let result = demux_caption_pes(&path, caption_pid);
 
     assert!(!result.is_empty(), "continuation PES should be reassembled");
     // The reconstructed payload should match the original.
@@ -616,88 +595,4 @@ fn pes_blob_write_read_integration() {
     assert_eq!(loaded[0].pts_ms, 0);
     assert_eq!(loaded[1].pts_ms, 2000);
     assert_eq!(loaded[1].payload, vec![0x80u8, 0xBB, 0xCC]);
-}
-
-// ── PCR anchoring ─────────────────────────────────────────────────────────────
-//
-// With a PCR PID, t = 0 is the first PCR (the start of the file) rather than the
-// first caption, so timestamps line up with how ffmpeg interprets `-ss`.
-
-const PCR_PID: u16 = 0x0100;
-
-/// Build a file whose first packet is a PCR, followed by caption PES packets,
-/// and return the demuxed timestamps anchored to that PCR.
-fn demux_anchored(caption_pid: u16, pcr_base: u64, pts_values: &[u64]) -> Vec<i64> {
-    let mut packets = vec![pcr_packet(PCR_PID, pcr_base)];
-    for (i, &pts) in pts_values.iter().enumerate() {
-        let payload = [0x80u8, i as u8];
-        let pes = pes_header_with_pts(pts, &payload);
-        packets.push(pes_packet(caption_pid, true, &pes));
-    }
-    let (_f, path) = write_ts_file(&packets);
-    demux_caption_pes(&path, caption_pid, Some(PCR_PID))
-        .iter()
-        .map(|c| c.pts_ms)
-        .collect()
-}
-
-#[test]
-fn demux_caption_pes_anchors_to_first_pcr() {
-    // Captions start 1 s after the PCR, so the first one is at 1000 ms — not 0.
-    let pcr = 90_000u64 * 100;
-    let out = demux_anchored(0x0200, pcr, &[pcr + 90_000, pcr + 180_000]);
-    assert_eq!(out, vec![1000, 2000]);
-}
-
-#[test]
-fn demux_caption_pes_without_pcr_pid_falls_back_to_first_caption() {
-    // Same stream, but no PCR PID given: the first caption defines t = 0.
-    let pcr = 90_000u64 * 100;
-    let out = demux_pts_sequence(0x0200, &[pcr + 90_000, pcr + 180_000]);
-    assert_eq!(out, vec![0, 1000]);
-}
-
-#[test]
-fn demux_caption_pes_pcr_pid_absent_from_stream_falls_back() {
-    // A PCR PID is declared but the file carries no such packet.  The demux must
-    // still produce a usable timeline rather than dropping every caption.
-    let caption_pid = 0x0200;
-    let packets: Vec<[u8; 188]> = [90_000u64 * 5, 90_000 * 6]
-        .iter()
-        .enumerate()
-        .map(|(i, &pts)| {
-            let payload = [0x80u8, i as u8];
-            pes_packet(caption_pid, true, &pes_header_with_pts(pts, &payload))
-        })
-        .collect();
-    let (_f, path) = write_ts_file(&packets);
-    let out: Vec<i64> = demux_caption_pes(&path, caption_pid, Some(PCR_PID))
-        .iter()
-        .map(|c| c.pts_ms)
-        .collect();
-    assert_eq!(out, vec![0, 1000]);
-}
-
-#[test]
-fn demux_caption_pes_anchor_survives_rollover_between_pcr_and_caption() {
-    // PCR sits 1 s before the 33-bit wrap; the captions land just after it.
-    let pcr = (1u64 << 33) - 90_000;
-    let out = demux_anchored(0x0200, pcr, &[0, 90_000]);
-    assert_eq!(out, vec![1000, 2000]);
-    assert!(out.iter().all(|&ms| ms < MAX_PLAUSIBLE_PTS_MS));
-}
-
-#[test]
-fn scan_psi_reports_pcr_pid_from_pmt() {
-    let svc_id: u16 = 0x0428;
-    let pmt_pid: u16 = 0x1000;
-    let caption_pid: u16 = 0x0200;
-    let packets = vec![
-        section_packet(0x0000, &pat_section(svc_id, pmt_pid)),
-        section_packet(pmt_pid, &pmt_section_with_arib(svc_id, caption_pid)),
-    ];
-    let (_f, path) = write_ts_file(&packets);
-    let psi = scan_psi(&path);
-    assert_eq!(psi.caption_pid, Some(caption_pid));
-    assert_eq!(psi.pcr_pid, Some(PCR_PID), "PCR PID must come from the PMT");
 }

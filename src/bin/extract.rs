@@ -58,23 +58,14 @@ fn main() {
     if debug_raw {
         println!();
         println!("=== Raw decoder output ===");
-        let caption_pid = psi.caption_pid;
+        let caption_pid = captu::ts::pes::find_caption_pid(ts_path);
         println!(
             "caption PID: {:?}",
             caption_pid.map(|p| format!("0x{:04X}", p))
         );
-        println!(
-            "PCR PID: {:?} ({})",
-            psi.pcr_pid.map(|p| format!("0x{:04X}", p)),
-            if psi.pcr_pid.is_some() {
-                "timestamps anchored to file start"
-            } else {
-                "no PCR — timestamps anchored to first caption"
-            }
-        );
 
         if let Some(pid) = caption_pid {
-            let pes_list = captu::ts::pes::demux_caption_pes(ts_path, pid, psi.pcr_pid);
+            let pes_list = captu::ts::pes::demux_caption_pes(ts_path, pid);
             println!("PES packets: {}", pes_list.len());
 
             let ctx = aribcaption::Context::new().expect("context");
@@ -107,7 +98,7 @@ fn main() {
     // Normal caption extraction (text only, no rendering)
     println!();
     println!("=== Captions ===");
-    match captu::ts::subtitle::extract_captions(ts_path, &cache_dir, psi.caption_pid, psi.pcr_pid) {
+    match captu::ts::subtitle::extract_captions(ts_path, &cache_dir, psi.caption_pid) {
         Ok(captions) => {
             println!("({} 件)", captions.len());
             for cap in &captions {
