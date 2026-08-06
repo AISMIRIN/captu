@@ -88,7 +88,15 @@ pub fn build_router(state: AppState) -> Router {
 
 /// Format milliseconds as HH:MM:SS or MM:SS for display.
 /// Negative values are clamped to zero (displayed as 00:00).
+///
+/// Values beyond the plausible range render as `--:--`.  `{:02}` does not
+/// truncate, so a corrupt timestamp would otherwise print an 11-digit hour
+/// field; such a value means a broken PTS timeline, not a long recording.
+/// No logging here — this runs twice per rendered row.
 pub(crate) fn fmt_ms(ms: i64) -> String {
+    if ms > crate::ts::pts::MAX_PLAUSIBLE_PTS_MS {
+        return "--:--".to_string();
+    }
     let ms = ms.max(0);
     let total = ms / 1000;
     let h = total / 3600;
@@ -198,6 +206,19 @@ mod tests {
         // 2h 5m 9s
         let ms = 2 * 3_600_000 + 5 * 60_000 + 9 * 1_000;
         assert_eq!(fmt_ms(ms), "02:05:09");
+    }
+
+    #[test]
+    fn fmt_ms_huge_value_returns_placeholder() {
+        // The value that was actually rendered before the 33-bit unwrap fix.
+        assert_eq!(fmt_ms(204_963_822_946_342_000), "--:--");
+        assert_eq!(fmt_ms(i64::MAX), "--:--");
+    }
+
+    #[test]
+    fn fmt_ms_at_plausibility_boundary() {
+        assert_eq!(fmt_ms(crate::ts::pts::MAX_PLAUSIBLE_PTS_MS), "24:00:00");
+        assert_eq!(fmt_ms(crate::ts::pts::MAX_PLAUSIBLE_PTS_MS + 1), "--:--");
     }
 
     #[test]

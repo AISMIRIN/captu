@@ -170,11 +170,25 @@ pub fn extract_captions(
     // Compute pts_end: duration if known, otherwise next caption's pts or +5000 ms.
     let count = raw.len();
     let mut result: Vec<Caption> = Vec::with_capacity(count);
+    let mut skipped_implausible = 0usize;
 
     for i in 0..count {
         let pts_start_ms = raw[i].pts_ms;
+        // libaribcaption reports ARIBCC_PTS_NOPTS (i64::MIN) when an event has no
+        // usable timestamp; `pts_start_ms + dur` on that value overflows.
+        if pts_start_ms == aribcaption::PTS_NOPTS || pts_start_ms < 0 {
+            skipped_implausible += 1;
+            continue;
+        }
         let pts_end_ms = match raw[i].duration_ms {
-            Some(dur) => pts_start_ms + dur,
+            // checked_add: `dur` comes straight from the FFI struct.
+            Some(dur) => match pts_start_ms.checked_add(dur) {
+                Some(v) => v,
+                None => {
+                    skipped_implausible += 1;
+                    continue;
+                }
+            },
             None => {
                 if i + 1 < count {
                     raw[i + 1].pts_ms
@@ -184,7 +198,12 @@ pub fn extract_captions(
             }
         };
 
-        if pts_end_ms <= pts_start_ms {
+        // Single gate replacing the former `pts_end_ms <= pts_start_ms` check.
+        // A caption whose time cannot be trusted is dropped rather than clamped:
+        // a clamped one would seek to an unrelated frame and silently pollute
+        // search results, which is worse than a missing row.
+        if !crate::ts::pts::is_plausible_pts(pts_start_ms, pts_end_ms) {
+            skipped_implausible += 1;
             continue;
         }
 
@@ -193,6 +212,16 @@ pub fn extract_captions(
             pts_end_ms,
             text: raw[i].text.clone(),
         });
+    }
+
+    // One aggregated warning per file; per-caption logging would flood the
+    // ingest log on a badly corrupted stream.
+    if skipped_implausible > 0 {
+        tracing::warn!(
+            "{}: dropped {} caption(s) with implausible timestamps",
+            ts_path.display(),
+            skipped_implausible,
+        );
     }
 
     Ok(result)

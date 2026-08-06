@@ -14,8 +14,16 @@ use crate::ts::subtitle;
 /// - `win_start`: first sample point (1.5 s after the caption start)
 /// - `win_end`: last sample point (caption end, or win_start + 0.5 s minimum)
 fn caption_window(pts_start_ms: i64, pts_end_ms: i64) -> (f64, f64, f64) {
-    let pts_start_sec = pts_start_ms as f64 / 1000.0;
-    let pts_end_sec = pts_end_ms as f64 / 1000.0;
+    // Cap the upper end.  A corrupt PTS would otherwise yield an `-ss` argument
+    // of ~2e14 seconds, which makes ffmpeg seek past EOF and emit no frames.
+    // Only the upper bound is capped: the low end is already handled by the
+    // `.max(0.0)` on `pre_seek` below and by `frame_indices`, and clamping it
+    // here would change how small/negative timestamps behave.  Capping silently
+    // keeps this a total function; callers that must reject such captions
+    // outright do so before reaching the capture pipeline.
+    let max = crate::ts::pts::MAX_PLAUSIBLE_PTS_MS;
+    let pts_start_sec = pts_start_ms.min(max) as f64 / 1000.0;
+    let pts_end_sec = pts_end_ms.min(max) as f64 / 1000.0;
     let pre_seek = (pts_start_sec - 6.0).max(0.0);
     let win_start = pts_start_sec + 1.5;
     let win_end = if pts_end_sec > win_start {
@@ -692,6 +700,42 @@ mod tests {
         // Caption ends before win_start → window widens to win_start + 0.5
         let (_, win_start, win_end) = caption_window(10_000, 10_500);
         assert!((win_end - (win_start + 0.5)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn caption_window_clamps_huge_pts() {
+        // The corrupt value produced by the pre-fix 33-bit underflow would give
+        // `-ss 204963822940342`, which makes ffmpeg emit no frames.
+        let max_sec = crate::ts::pts::MAX_PLAUSIBLE_PTS_MS as f64 / 1000.0;
+        let (pre_seek, win_start, win_end) = caption_window(204_963_822_946_342_000, i64::MAX);
+        for v in [pre_seek, win_start, win_end] {
+            assert!(v.is_finite(), "component must stay finite");
+            assert!(
+                v >= 0.0 && v <= max_sec + 2.0,
+                "component out of range: {v}"
+            );
+        }
+        assert!(pre_seek <= max_sec);
+    }
+
+    #[test]
+    fn frame_indices_huge_pts_bounded() {
+        let idx = frame_indices(204_963_822_946_342_000, i64::MAX, 6, 30.0);
+        let limit = (crate::ts::pts::MAX_PLAUSIBLE_PTS_MS / 1000) as u64 * 30;
+        assert!(
+            idx.iter().all(|&i| i <= limit),
+            "frame index escaped: {idx:?}"
+        );
+    }
+
+    #[test]
+    fn preview_target_sec_huge_pts_bounded() {
+        let t = preview_target_sec(204_963_822_946_342_000, i64::MAX, 6);
+        let max_sec = crate::ts::pts::MAX_PLAUSIBLE_PTS_MS as f64 / 1000.0;
+        assert!(
+            t.is_finite() && t >= 0.0 && t <= max_sec + 2.0,
+            "target: {t}"
+        );
     }
 
     #[test]
