@@ -31,13 +31,15 @@
             hx-swap="innerHTML">
   </datalist>
 
-  {# Enlarged preview of the selected frame — updated by selectFrame() #}
+  {# Enlarged preview of the selected frame.
+     No src here on purpose: renderEnlarged() fetches /full/{id}/{n}?sub=0,
+     composites the subtitle PNG in a canvas and assigns an object URL.  A
+     server-rendered src would trigger a second, subtitle-burned ffmpeg run. #}
   <div class="rounded-lg overflow-hidden bg-black mb-3">
     {# bg-gray-700 acts as a loading skeleton until the image loads #}
     <div class="relative bg-gray-700 animate-pulse aspect-video" style="max-height: 60vh;">
       <img
         id="enlarged"
-        src="/full/{{ caption_id }}/{{ selected_frame }}"
         alt="選択中のフレーム"
         class="absolute inset-0 w-full h-full object-contain opacity-0 transition-opacity duration-200"
         onload="this.classList.remove('opacity-0'); this.parentElement.classList.remove('animate-pulse', 'bg-gray-700')"
@@ -65,6 +67,26 @@
       </div>
     </div>
     {% endfor %}
+  </div>
+
+  {# Subtitle overlay toggle.  Hidden by JS when the caption has no renderable
+     subtitle (GET /sub/{id} answered 204). #}
+  <div id="sub-toggle-row" class="flex items-center justify-between gap-3 mb-2">
+    <div class="inline-flex rounded-lg overflow-hidden border border-gray-700">
+      <button
+        type="button"
+        id="sub-on"
+        onclick="setSub(true)"
+        class="sub-tab px-3 py-1.5 text-sm transition-colors"
+      >字幕あり</button>
+      <button
+        type="button"
+        id="sub-off"
+        onclick="setSub(false)"
+        class="sub-tab px-3 py-1.5 text-sm transition-colors"
+      >字幕なし</button>
+    </div>
+    <span class="text-xs text-gray-500">画像を右クリックしてもコピーできる</span>
   </div>
 
   {# Action button #}

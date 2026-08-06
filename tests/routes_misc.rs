@@ -568,3 +568,80 @@ async fn select_frame_upsert_overwrites_previous() {
     let frame = get_selected_frame(&app.state.pool, cap_id).await;
     assert_eq!(frame, 4, "most recent selection should win");
 }
+
+// ── GET /sub/:id and /full/:id/:n?sub=0 ───────────────────────────────────────
+//
+// These only exercise the routing and the lookup_caption guards; anything past
+// that would need ffmpeg and a real TS file, which the coverage policy exempts.
+
+/// Insert a caption whose PTS is outside the plausible range (see is_plausible_pts).
+async fn insert_caption_bad_pts(pool: &sqlx::SqlitePool, file_id: i64) -> i64 {
+    sqlx::query(
+        "INSERT INTO captions (ts_file_id, pts_start, pts_end, text)
+         VALUES (?, 95443717678, 95443718678, 'wrapped')",
+    )
+    .bind(file_id)
+    .execute(pool)
+    .await
+    .unwrap()
+    .last_insert_rowid()
+}
+
+#[tokio::test]
+async fn sub_png_missing_caption_returns_404() {
+    let app = make_app_seeded().await;
+    // Also proves the `/sub/{id}` pattern is matched by the router at all.
+    let (status, _) = oneshot(app.router, get("/sub/9999")).await;
+    assert_eq!(status, 404);
+}
+
+#[tokio::test]
+async fn sub_png_implausible_pts_returns_422() {
+    let app = make_app_seeded().await;
+    let file_id = insert_ts_file(&app.state.pool, "/nas/bad.ts", "bad.ts").await;
+    let cap_id = insert_caption_bad_pts(&app.state.pool, file_id).await;
+
+    let (status, _) = oneshot(app.router, get(&format!("/sub/{cap_id}"))).await;
+    assert_eq!(
+        status, 422,
+        "a corrupt PTS timeline must be refused before any rendering"
+    );
+}
+
+#[tokio::test]
+async fn contact_enlarged_image_has_no_server_side_src() {
+    let app = make_app_seeded().await;
+    let (_, cap_id) = seed_one(&app).await;
+
+    let (status, body) = oneshot(app.router, get(&format!("/contact/{cap_id}"))).await;
+    assert_eq!(status, 200);
+    // The enlarged preview is composited client-side from ?sub=0 plus /sub/{id}.
+    // A server-rendered src would request the subtitle-burned variant and make
+    // ffmpeg generate a second copy of every frame.
+    assert!(
+        !body.contains(&format!("src=\"/full/{cap_id}/")),
+        "contact page must not embed a burned-in /full src"
+    );
+    assert!(
+        body.contains("id=\"sub-toggle-row\""),
+        "contact page should render the subtitle toggle"
+    );
+}
+
+#[tokio::test]
+async fn full_nosub_query_missing_caption_returns_404() {
+    let app = make_app_seeded().await;
+    // The Query<FullQuery> extractor must not turn a missing caption into 400.
+    let (status, _) = oneshot(app.router, get("/full/9999/0?sub=0")).await;
+    assert_eq!(status, 404);
+}
+
+#[tokio::test]
+async fn full_rejects_non_numeric_sub_query() {
+    let app = make_app_seeded().await;
+    let (status, _) = oneshot(app.router, get("/full/9999/0?sub=nope")).await;
+    assert_eq!(
+        status, 400,
+        "an unparseable sub value should be a client error, not a silent default"
+    );
+}

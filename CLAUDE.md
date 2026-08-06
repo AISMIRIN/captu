@@ -31,11 +31,13 @@ src/
 │   └── capture.rs   # ffmpeg 単一パスサムネ生成 (stock ffmpeg)
 │                    #   bwdif → select → scale → 字幕PNGオーバーレイ → JPEG (1コマンド)
 │                    #   検索プレビューは時刻直シーク + -frames:v 1 の単フレーム取得
+│                    #   SubMode で字幕焼き込み/なしを切替 (キャッシュ名も分離)
 ├── routes/
 │   ├── mod.rs       # AppState, build_router(), display_title(), fmt_ms(), like_escape()
 │   ├── search.rs    # GET /, GET /search
 │   ├── contact.rs   # GET /contact/{id} (コンタクトシート)
-│   ├── capture.rs   # GET /thumb/{id}/{n}, GET /full/{id}/{n}, GET /preview/{id}, POST /select/{id}/{n}, POST /recapture/{id}
+│   ├── capture.rs   # GET /thumb/{id}/{n}, GET /full/{id}/{n}[?sub=0], GET /preview/{id}
+│                    #   GET /sub/{id} (字幕PNG、字幕なしなら204), POST /select/{id}/{n}, POST /recapture/{id}
 │   ├── episodes.rs  # GET /api/episodes
 │   ├── tags.rs      # POST /caption/{id}/tags, POST /caption/{id}/tags/delete, GET /api/tags
 │   └── ingest.rs    # GET /ingest/status, GET /ingest/files, GET /ingest/file/{id}
@@ -57,7 +59,7 @@ ui/
 │   ├── pages/       # index.html / contact.html / ingest_status.html / ingest_files.html / ingest_file.html
 │   └── fragments/   # episodes.html / search_results.html / tag_options.html / tags.html
 └── static/
-    ├── app.js       # フレーム選択・JPEG共有/コピー/ダウンロード (contact系)
+    ├── app.js       # フレーム選択・字幕オン/オフのcanvas合成・JPEG共有/コピー/DL (contact系)
     └── search.js    # 検索フィルタ・タグチップ・状態復元 (URL/セッション) (index系)
 ```
 
@@ -71,7 +73,8 @@ cache/{ts_stem}/
   thumbs/
     {caption_id}_{n:02}.jpg  # コンタクトシートJPEG (縮小表示用、初回アクセス時に生成)
   full/
-    {caption_id}_{n:02}.jpg  # フル解像度JPEG (DL/共有用、初回アクセス時に生成)
+    {caption_id}_{n:02}.jpg        # フル解像度JPEG・字幕焼き込み (初回アクセス時に生成)
+    {caption_id}_{n:02}_nosub.jpg  # フル解像度JPEG・字幕なし (コンタクトシートが合成に使う)
 ```
 
 ## 技術規約
