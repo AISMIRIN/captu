@@ -20,6 +20,7 @@ src/
 │   ├── b24.rs       # ARIB STD-B24テキストコーデック (decode_arib_b24) — EPG専用pure-Rust
 │   ├── epg.rs       # EIT/EPGパーサ → EpgInfo
 │   ├── pes.rs       # ARIB字幕PESデマクサ (find_caption_pid, demux_caption_pes)
+│   │                #   PCR PIDを取得し先頭PCRを時間軸の原点にする
 │   ├── pts.rs       # 33bit PTS正規化 (PtsNormalizer, is_plausible_pts)
 │   │                #   ラップアラウンド巻き戻し・不連続吸収はここ一箇所に集約
 │   └── subtitle.rs  # aribcaption FFI字幕抽出・on-demand PNG描画
